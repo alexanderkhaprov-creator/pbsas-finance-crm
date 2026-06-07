@@ -32,6 +32,15 @@ export type Event = {
 };
 
 export type ExpenseCategory =
+  | "Fuel"
+  | "Licensing Operations"
+  | "Event Operations"
+  | "Officials"
+  | "Office & Administration"
+  | "Professional Services"
+  | "Workshop"
+  | "General Operations"
+  | "Other"
   | "Venue"
   | "Transport"
   | "Accommodation"
@@ -52,7 +61,7 @@ export type ExpenseCategory =
 export type CurrencyCode = "AED" | "USD" | "EUR" | "GBP" | "RUB";
 export type ExpenseLinkType = "Event" | "Workshop" | "Tournament" | "Meeting" | "General Operations";
 
-export type CostCenterType = "Event" | "Workshop" | "Department" | "Federation Operations" | "WBC Operations" | "Licensing" | "General Admin";
+export type CostCenterType = "Event" | "Workshop" | "Department" | "Federation Operations" | "WBC Operations" | "Licensing" | "General Admin" | "Athletic Commission Operations";
 export type CostCenterStatus = "Active" | "Closed" | "Archived";
 
 export type CostCenter = {
@@ -72,16 +81,19 @@ export type ReimbursementStatus =
   | "Pending"
   | "Approved"
   | "Reimbursed"
+  | "Outstanding"
   | "Pending Review"
   | "Approved for Reimbursement"
   | "Partially Reimbursed"
   | "Fully Reimbursed"
+  | "Disputed"
+  | "Closed"
   | "Rejected"
   | "Deferred";
-export type ApprovalStatus = "Draft" | "Submitted" | "Pending Review" | "Approved" | "Rejected";
+export type ApprovalStatus = "Draft" | "Submitted" | "Under Review" | "Pending Review" | "Approved" | "Rejected" | "Reimbursed" | "Closed";
 export type ReceiptProcessingStatus = "New" | "Needs Review" | "Converted to Expense" | "Rejected";
 export type ReconciliationStatus = "Not Reconciled" | "In Review" | "Reconciled" | "Disputed";
-export type AuditModule = "People" | "Events" | "Cost Centers" | "Receipt Intake" | "Expenses" | "Reimbursements" | "Revenue" | "Data Management" | "Batch Entry" | "Document Register" | "License Applications" | "Application Intake";
+export type AuditModule = "People" | "Events" | "Cost Centers" | "Receipt Intake" | "Expenses" | "Reimbursements" | "Revenue" | "Data Management" | "Batch Entry" | "Document Register" | "License Applications" | "Application Intake" | "Application Import";
 export type AuditAction =
   | "Created"
   | "Updated"
@@ -122,6 +134,13 @@ export type AuditAction =
   | "Payment Verified"
   | "Payment Rejected"
   | "Payment Waived"
+  | "Payment Proof Rejected"
+  | "Payment Section Reviewed"
+  | "Payment Marked Cash Paid"
+  | "Payment Marked Manually Paid"
+  | "Application Manually Marked Ready For Chief Review"
+  | "Core Document Verified"
+  | "License Issue Blocked By Missing Core Document"
   | "Document Uploaded"
   | "Document Marked Received"
   | "Document Verified"
@@ -135,7 +154,23 @@ export type AuditAction =
   | "License Previewed"
   | "License Printed / Downloaded"
   | "Existing License Uploaded"
-  | "Returning Applicant Identified";
+  | "Declaration Accepted"
+  | "Returning Applicant Identified"
+  | "Application Import Created"
+  | "Application Created From OCR Import"
+  | "Expense Created From Receipt OCR"
+  | "Expense Created"
+  | "Expense Submitted"
+  | "Expense Approved"
+  | "Expense Rejected"
+  | "Expense Closed"
+  | "Reimbursement Created"
+  | "Reimbursement Approved"
+  | "Reimbursement Settled"
+  | "Reimbursement Proof Uploaded"
+  | "Reimbursement Marked Paid"
+  | "Faulty Test Expense Removed"
+  | "Treasury Settlement Recorded";
 export type DocumentType =
   | "Receipt"
   | "Invoice"
@@ -203,12 +238,14 @@ export type LicenseApplicationSource = "Hard Copy" | "Soft Copy" | "Online Form"
 export type LicensePaymentStatus = "Pending Payment" | "Payment Submitted" | "Payment Verified" | "Paid" | "Partially Paid" | "Waived" | "Refunded" | "Rejected";
 export type LicensePaymentMethod = "Cash" | "Bank Transfer" | "Card" | "Online Payment" | "Other";
 export type LicensePaidTo = "UAE Boxing Federation" | "UAE Athletic Commission" | "PBSAS" | "Other";
-export type LicenseReviewStatus = "New" | "Awaiting Payment" | "Awaiting Payment Verification" | "Pending Documents" | "Pending Payment" | "Eligible For Chief Review" | "Under Chief Review" | "Pending Chief Review" | "Approved by Chief" | "Rejected" | "Ready for Stamp" | "License Issued";
+export type LicenseReviewStatus = "New" | "Awaiting Payment" | "Awaiting Payment Verification" | "Pending Review - Payment Section" | "Pending Documents" | "Pending Payment" | "Eligible For Chief Review" | "Under Chief Review" | "Pending Chief Review" | "Approved by Chief" | "Rejected" | "Ready for Stamp" | "License Issued";
 export type StampStatus = "Not Available Yet" | "Awaiting Stamp" | "Stamped" | "Not Required";
 export type LicenseStatus = "Application Registered" | "Awaiting Payment" | "Awaiting Review" | "Approved Awaiting Stamp" | "Issued" | "Rejected" | "Expired" | "Suspended";
 export type LicenseInvoiceStatus = "Not Generated" | "Invoice Required" | "Draft" | "Generated" | "Invoice Sent" | "Sent" | "Paid" | "Cancelled" | "Waived";
 export type LicenseApplicationOrigin = "Historical Migration" | "New Application" | "Online Form" | "Online Application" | "Manual Entry";
 export type LicenseIntakeStatus = "New" | "Awaiting Data Entry" | "Awaiting Review" | "Converted to Application" | "Rejected";
+export type OcrStatus = "Uploaded" | "Text Extracted" | "Mapping Review" | "Ready To Create Application" | "Ready To Convert Receipt" | "Converted To Application" | "Converted To Expense" | "Rejected";
+export type OcrConfidenceLevel = "High" | "Medium" | "Low" | "Manual Review Required";
 export type LicenseDocumentVerificationStatus = "Not Received" | "Received" | "Verified" | "Needs Clarification" | "Rejected";
 export type LicenseRequirementStatus = "Active" | "Archived";
 
@@ -241,6 +278,18 @@ export type LicenseDocumentRequirement = {
   status: LicenseRequirementStatus;
 };
 
+export type CoachCertification = {
+  certificationName: string;
+  issuingOrganization: string;
+  yearIssued: string;
+  notes: string;
+};
+
+export type NotableFighter = {
+  fighterName: string;
+  levelRecordNotes: string;
+};
+
 export type LicenseFeeScheduleItem = {
   id: string;
   category: LicenseCategory;
@@ -255,6 +304,7 @@ export type LicenseFeeScheduleItem = {
 export type LicenseApplication = {
   id: string;
   sourceIntakeId?: string;
+  sourceImportId?: string;
   applicationOrigin: LicenseApplicationOrigin;
   licenseIssueNumber: string;
   applicantFullName: string;
@@ -265,6 +315,8 @@ export type LicenseApplication = {
   dateOfBirth: string;
   passportNumber?: string;
   nationalIdNumber?: string;
+  nationalIdRawDigits?: string;
+  nationalIdFormatted?: string;
   identificationNumber: string;
   gender?: "Male" | "Female" | "Non-binary" | "";
   existingRegisteredLicenseNumber?: string;
@@ -300,7 +352,9 @@ export type LicenseApplication = {
   yearsOfExperience?: string;
   currentGymOrTeam?: string;
   professionalCertificationsHeld?: string;
+  coachCertifications?: CoachCertification[];
   notableFightersTrained?: string;
+  notableFighters?: NotableFighter[];
   officialClassification?: string;
   professionalBoxingExperienceYears?: string;
   amateurBoxingExperienceYears?: string;
@@ -347,6 +401,13 @@ export type LicenseApplication = {
   paymentMethod: LicensePaymentMethod;
   paymentOtherDescription?: string;
   paymentProofFileName?: string;
+  paymentRejectionReason?: string;
+  paymentRejectedBy?: string;
+  paymentRejectionDate?: string;
+  paymentConfirmedBy?: string;
+  paymentConfirmationType?: "Cash Paid" | "Manually Paid" | "Waived" | "Admin Ready Override" | "";
+  paymentReadyOverrideReason?: string;
+  paymentReadyOverrideBy?: string;
   receiptNumber?: string;
   paidTo: LicensePaidTo;
   paymentDate: string;
@@ -393,6 +454,34 @@ export type LicenseApplication = {
   updatedAt: string;
 };
 
+export type ApplicationImportMappedField = {
+  id: string;
+  label: string;
+  targetField: keyof LicenseApplication;
+  extractedValue: string;
+  editedValue: string;
+  confidence: OcrConfidenceLevel;
+  include: boolean;
+};
+
+export type ApplicationImport = {
+  id: string;
+  uploadDate: string;
+  uploadedBy: string;
+  fileName: string;
+  fileType: string;
+  ocrStatus: OcrStatus;
+  extractedRawText: string;
+  confidenceLevel: OcrConfidenceLevel;
+  notes: string;
+  mappedFields: ApplicationImportMappedField[];
+  applicationOrigin: LicenseApplicationOrigin;
+  duplicateWarning?: string;
+  linkedApplicationId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type LicenseReceipt = {
   id: string;
   receiptDate: string;
@@ -404,6 +493,7 @@ export type LicenseReceipt = {
   amountReceived: number;
   currency: CurrencyCode;
   paymentMethod: LicensePaymentMethod;
+  paymentDate: string;
   paymentReference: string;
   paidTo: LicensePaidTo;
   receivedBy: string;
@@ -502,11 +592,25 @@ export type Expense = {
   eventRecordId?: string;
   receiptFiles?: ReceiptFile[];
   sourceReceiptId?: string;
+  paidByPersonId?: string;
+  paidByPersonName?: string;
+  personToReimburseId?: string;
+  personToReimburseName?: string;
   costCenterId?: string;
   costCenter?: string;
+  linkedEventId?: string;
+  linkedEventName?: string;
   periodId?: string;
   periodLabel?: string;
   possibleDuplicateOfId?: string;
+  ocrStatus?: OcrStatus;
+  extractedRawText?: string;
+  confidenceLevel?: OcrConfidenceLevel;
+  mappingReviewed?: boolean;
+  sourceFileName?: string;
+  referenceNumber?: string;
+  vatTrn?: string;
+  duplicateWarning?: string;
   noteHistory?: InternalNote[];
   id: string;
   date: string;
@@ -514,6 +618,7 @@ export type Expense = {
   linkType: ExpenseLinkType;
   event: string;
   category: ExpenseCategory;
+  expensePurpose?: string;
   description: string;
   amount: number;
   currency: CurrencyCode;
@@ -524,7 +629,9 @@ export type Expense = {
   reimbursementStatus: ReimbursementStatus;
   approvalStatus: ApprovalStatus;
   submittedBy?: string;
+  submittedDate?: string;
   reviewedBy?: string;
+  reviewedDate?: string;
   approvedBy?: string;
   approvalDate?: string;
   rejectionReason?: string;
@@ -540,6 +647,10 @@ export type ReceiptIntake = {
   id: string;
   uploadDate: string;
   uploadedBy: string;
+  paidByPersonId?: string;
+  paidByPersonName?: string;
+  personToReimburseId?: string;
+  personToReimburseName?: string;
   fileName: string;
   fileUrl: string;
   fileType: string;
@@ -551,13 +662,24 @@ export type ReceiptIntake = {
   paidBy: string;
   linkType: ExpenseLinkType;
   event: string;
+  linkedEventId?: string;
+  linkedEventName?: string;
   costCenterId?: string;
   costCenter?: string;
   periodId?: string;
   periodLabel?: string;
   possibleDuplicateOfId?: string;
+  ocrStatus?: OcrStatus;
+  extractedRawText?: string;
+  confidenceLevel?: OcrConfidenceLevel;
+  mappingReviewed?: boolean;
+  sourceFileName?: string;
+  referenceNumber?: string;
+  vatTrn?: string;
+  duplicateWarning?: string;
   noteHistory?: InternalNote[];
   suggestedCategory: ExpenseCategory;
+  expensePurpose?: string;
   reimbursable: boolean;
   notes: string;
   status: ReceiptProcessingStatus;
@@ -577,8 +699,11 @@ export type Reimbursement = {
   recordId?: string;
   personOwedRecordId?: string;
   expenseRecordId?: string;
+  sourceReceiptId?: string;
   costCenterId?: string;
   costCenter?: string;
+  linkedEventId?: string;
+  linkedEventName?: string;
   periodId?: string;
   periodLabel?: string;
   noteHistory?: InternalNote[];
@@ -588,11 +713,19 @@ export type Reimbursement = {
   responsiblePerson: string;
   linkedExpense: string;
   amount: number;
+  amountOwed?: number;
   amountReimbursed: number;
   outstandingBalance: number;
   dueDate: string;
-  status: Exclude<ReimbursementStatus, "Not Reimbursable" | "Pending" | "Approved" | "Reimbursed">;
+  status: ReimbursementStatus;
   reimbursedDate: string;
+  settlementDate?: string;
+  settlementMethod?: "Bank Transfer" | "Cash" | "Card" | "Other" | "";
+  settlementReference?: string;
+  settledBy?: string;
+  reimbursementProofFileName?: string;
+  reimbursementProofUploadedAt?: string;
+  reimbursementProofNotes?: string;
   paymentReference: string;
   reconciliationStatus?: ReconciliationStatus;
   reconciledBy?: string;

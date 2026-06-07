@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from "react";
 import {
   auditLogs as initialAuditLogs,
+  applicationImports as initialApplicationImports,
   appSettings as initialAppSettings,
   costCenters as initialCostCenters,
   documents as initialDocuments,
@@ -25,7 +26,9 @@ import {
 } from "@/data/mock-data";
 import { reimbursementIdForExpense } from "@/lib/finance-calculations";
 import { ensureRecordIds, getNextSequentialId, isValidRecordId } from "@/lib/id-utils";
-import type { AppSettings, AuditAction, AuditLog, AuditModule, CostCenter, Event, Expense, FinancialPeriod, GeneratedLicense, InternalNote, LicenseApplication, LicenseCompletionChecklist, LicenseDocumentChecklistItem, LicenseDocumentRequirement, LicenseFeeScheduleItem, LicenseIntake, LicenseReceipt, PaymentSettings, Person, ReceiptFile, ReceiptIntake, Reimbursement, Revenue, StampSettings, SupportingDocument } from "@/types";
+import { parseMoneyInput } from "@/lib/money-utils";
+import { getMappedValue } from "@/lib/ocr-import";
+import type { AppSettings, ApplicationImport, AuditAction, AuditLog, AuditModule, CostCenter, Event, Expense, FinancialPeriod, GeneratedLicense, InternalNote, LicenseApplication, LicenseCompletionChecklist, LicenseDocumentChecklistItem, LicenseDocumentRequirement, LicenseFeeScheduleItem, LicenseIntake, LicenseReceipt, PaymentSettings, Person, ReceiptFile, ReceiptIntake, Reimbursement, Revenue, StampSettings, SupportingDocument } from "@/types";
 
 type ExpenseInput = Omit<Expense, "id">;
 type BatchExpenseInput = ExpenseInput & {
@@ -43,6 +46,7 @@ type BackupData = {
   costCenters: CostCenter[];
   auditLogs: AuditLog[];
   documents: SupportingDocument[];
+  applicationImports: ApplicationImport[];
   licenseApplications: LicenseApplication[];
   licenseIntake: LicenseIntake[];
   licenseReceipts: LicenseReceipt[];
@@ -68,6 +72,7 @@ const storageKeys = {
   costCenters: "pbsas_cost_centers_v1",
   auditLogs: "pbsas_audit_logs_v1",
   documents: "pbsas_documents_v1",
+  applicationImports: "pbsas_application_imports_v1",
   licenseApplications: "pbsas_license_applications_v1",
   licenseIntake: "pbsas_license_intake_v1",
   licenseReceipts: "pbsas_license_receipts_v1",
@@ -83,6 +88,13 @@ const storageKeys = {
 const LICENSE_YEAR_PREFIX = "UAEAC2026";
 const UNIVERSAL_REQUIRED_LICENSE_DOCUMENTS = ["Copy of Passport OR National ID document", "Passport-Sized Photograph"];
 const UNIVERSAL_OPTIONAL_LICENSE_DOCUMENTS = ["Current Medical Examination", "Professional Certifications Held", "Other Supporting Documents"];
+
+function isLicenseDocumentRequired(documentName: string, category: LicenseApplication["licenseCategory"], heldPreviousLicense: LicenseApplication["heldPreviousLicense"]) {
+  if (heldPreviousLicense === "Yes" && documentName === "Existing License Copies") return true;
+  if (UNIVERSAL_REQUIRED_LICENSE_DOCUMENTS.includes(documentName)) return true;
+  if (category === "Professional Boxer") return false;
+  return false;
+}
 
 function normalizeLicenseCategory(category: string): LicenseApplication["licenseCategory"] {
   const mapping: Record<string, LicenseApplication["licenseCategory"]> = {
@@ -115,6 +127,7 @@ type FinanceDataContextValue = {
   costCenters: CostCenter[];
   auditLogs: AuditLog[];
   documents: SupportingDocument[];
+  applicationImports: ApplicationImport[];
   licenseApplications: LicenseApplication[];
   licenseIntake: LicenseIntake[];
   licenseReceipts: LicenseReceipt[];
@@ -156,6 +169,10 @@ type FinanceDataContextValue = {
   addDocument: (document: EntityInput<SupportingDocument>) => Promise<void>;
   updateDocument: (document: SupportingDocument) => Promise<void>;
   deleteDocument: (document: SupportingDocument) => Promise<void>;
+  addApplicationImport: (applicationImport: EntityInput<ApplicationImport>) => Promise<ApplicationImport>;
+  updateApplicationImport: (applicationImport: ApplicationImport) => Promise<void>;
+  deleteApplicationImport: (applicationImport: ApplicationImport) => Promise<void>;
+  convertApplicationImportToApplication: (applicationImport: ApplicationImport) => Promise<LicenseApplication>;
   addLicenseApplication: (application: EntityInput<LicenseApplication>) => Promise<LicenseApplication>;
   updateLicenseApplication: (application: LicenseApplication) => Promise<LicenseApplication>;
   deleteLicenseApplication: (application: LicenseApplication) => Promise<void>;
@@ -180,6 +197,8 @@ type FinanceDataContextValue = {
   markBackupCompleted: () => void;
   setDataMode: (mode: AppSettings["mode"]) => void;
   updateFinancialPeriod: (period: FinancialPeriod) => void;
+  removeFaultyTestExpense: () => number;
+  cleanupOrphanedReferences: () => { orphanedReimbursements: number; orphanedReceipts: number };
   addInternalNote: (module: "Expenses" | "Reimbursements" | "Cost Centers" | "Receipt Intake", recordId: string, note: Omit<InternalNote, "id" | "timestamp">) => void;
   addAuditLog: (log: Omit<AuditLog, "id" | "timestamp">) => void;
   exportBackup: () => BackupData;
@@ -193,30 +212,42 @@ const FinanceDataContext = createContext<FinanceDataContextValue | null>(null);
 
 function buildReimbursement(expense: Expense, existing?: Reimbursement): Reimbursement {
   const existingStatus = existing?.status as string | undefined;
-  const amount = existing?.amount ?? expense.amount;
+  const amount = existing?.amount ?? existing?.amountOwed ?? expense.amount;
   const amountReimbursed = existing?.amountReimbursed ?? (existingStatus === "Fully Reimbursed" || existingStatus === "Reimbursed" ? amount : 0);
   const outstandingBalance = Math.max(0, amount - amountReimbursed);
   const defaultStatus: Reimbursement["status"] =
-    expense.reimbursementStatus === "Reimbursed" || expense.reimbursementStatus === "Fully Reimbursed"
+    outstandingBalance <= 0 || expense.reimbursementStatus === "Reimbursed" || expense.reimbursementStatus === "Fully Reimbursed"
       ? "Fully Reimbursed"
       : expense.reimbursementStatus === "Approved" || expense.reimbursementStatus === "Approved for Reimbursement"
-        ? "Approved for Reimbursement"
-        : "Pending Review";
+        ? "Approved"
+        : "Outstanding";
 
   return {
     id: existing?.id ?? reimbursementIdForExpense(expense.id),
     paidBy: existing?.paidBy ?? expense.paidBy,
-    personOwed: existing?.personOwed ?? expense.paidBy,
+    sourceReceiptId: existing?.sourceReceiptId ?? expense.sourceReceiptId,
+    personOwed: existing?.personOwed ?? expense.personToReimburseName ?? expense.paidBy,
+    personOwedRecordId: existing?.personOwedRecordId ?? expense.personToReimburseId ?? expense.paidByPersonId,
     responsiblePerson: existing?.responsiblePerson ?? expense.approvedBy ?? "Finance Admin",
     linkedExpense: expense.id,
     costCenterId: expense.costCenterId,
     costCenter: expense.costCenter,
+    linkedEventId: existing?.linkedEventId ?? expense.linkedEventId ?? expense.eventRecordId,
+    linkedEventName: existing?.linkedEventName ?? expense.linkedEventName ?? expense.event,
     amount,
+    amountOwed: amount,
     amountReimbursed,
     outstandingBalance,
     dueDate: existing?.dueDate ?? "",
-    status: existingStatus && existingStatus !== "Pending" && existingStatus !== "Approved" && existingStatus !== "Reimbursed" ? existing?.status ?? defaultStatus : defaultStatus,
+    status: existingStatus && existingStatus !== "Pending" && existingStatus !== "Reimbursed" ? existing?.status ?? defaultStatus : defaultStatus,
     reimbursedDate: existing?.reimbursedDate ?? "",
+    settlementDate: existing?.settlementDate ?? existing?.reimbursedDate ?? "",
+    settlementMethod: existing?.settlementMethod ?? "",
+    settlementReference: existing?.settlementReference ?? existing?.paymentReference ?? "",
+    settledBy: existing?.settledBy ?? "",
+    reimbursementProofFileName: existing?.reimbursementProofFileName ?? "",
+    reimbursementProofUploadedAt: existing?.reimbursementProofUploadedAt ?? "",
+    reimbursementProofNotes: existing?.reimbursementProofNotes ?? "",
     paymentReference: existing?.paymentReference ?? "Pending",
     reconciliationStatus: existing?.reconciliationStatus ?? expense.reconciliationStatus ?? "Not Reconciled",
     reconciledBy: existing?.reconciledBy ?? expense.reconciledBy ?? "",
@@ -259,6 +290,7 @@ function defaultCompletionChecklist(application?: Partial<LicenseApplication>): 
 
 function normalizeLicenseApplicationFields(application: LicenseApplication): LicenseApplication {
   const licenseCategory = normalizeLicenseCategory(application.licenseCategory);
+  const heldPreviousLicense = application.heldPreviousLicense ?? "";
   return {
     ...application,
     licenseCategory,
@@ -268,6 +300,10 @@ function normalizeLicenseApplicationFields(application: LicenseApplication): Lic
     identificationNumber: application.identificationNumber || application.passportNumber || application.nationalIdNumber || "",
     applicationOrigin: application.applicationOrigin ?? "Manual Entry",
     supportingDocumentFileNames: application.supportingDocumentFileNames ?? [],
+    documentChecklistSnapshot: application.documentChecklistSnapshot?.map((item) => ({
+      ...item,
+      required: isLicenseDocumentRequired(item.documentName, licenseCategory, heldPreviousLicense)
+    })),
     completionChecklist: {
       ...defaultCompletionChecklist(application),
       ...(application.completionChecklist ?? {})
@@ -325,7 +361,7 @@ function isPaymentCleared(application: LicenseApplication) {
 
 function canMoveToReadyForStamp(application: LicenseApplication) {
   const requiredDocumentsComplete = (application.documentChecklistSnapshot ?? []).filter((item) => item.required).every((item) => item.verificationStatus === "Verified");
-  return isPaymentCleared(application) && application.reviewStatus === "Approved by Chief" && hasRequiredLicenseApplicationFields(application) && requiredDocumentsComplete;
+  return licensePaymentConfirmed(application) && application.reviewStatus === "Approved by Chief" && hasRequiredLicenseApplicationFields(application) && requiredDocumentsComplete;
 }
 
 function normalizeLicenseWorkflow(application: LicenseApplication, previous?: LicenseApplication): LicenseApplication {
@@ -333,7 +369,7 @@ function normalizeLicenseWorkflow(application: LicenseApplication, previous?: Li
   const blockedOnlineStatuses: LicenseApplication["reviewStatus"][] = ["Eligible For Chief Review", "Under Chief Review", "Pending Chief Review", "Approved by Chief", "Ready for Stamp", "License Issued"];
   const requiredDocumentsComplete = (next.documentChecklistSnapshot ?? []).filter((item) => item.required).every((item) => item.verificationStatus === "Verified");
 
-  if (isOnlineApplication(next) && blockedOnlineStatuses.includes(next.reviewStatus) && (!isPaymentCleared(next) || !requiredDocumentsComplete)) {
+  if (isOnlineApplication(next) && blockedOnlineStatuses.includes(next.reviewStatus) && (!licensePaymentConfirmed(next) || !requiredDocumentsComplete)) {
     next.reviewStatus = previous?.reviewStatus ?? "Awaiting Payment";
     next.licenseStatus = "Awaiting Payment";
     next.internalNotes = `${next.internalNotes ? `${next.internalNotes}\n` : ""}Payment and required documents must be complete before Chief Review.`;
@@ -348,7 +384,7 @@ function normalizeLicenseWorkflow(application: LicenseApplication, previous?: Li
     next.licenseStatus = "Rejected";
   } else if (next.reviewStatus === "License Issued") {
     next.licenseStatus = "Issued";
-  } else if (!isPaymentCleared(next)) {
+  } else if (!licensePaymentConfirmed(next)) {
     next.licenseStatus = "Awaiting Payment";
   } else if (next.reviewStatus === "Ready for Stamp" || next.reviewStatus === "Approved by Chief") {
     next.licenseStatus = "Approved Awaiting Stamp";
@@ -370,7 +406,7 @@ function buildDocumentChecklistSnapshot(category: LicenseApplication["licenseCat
       return {
         requirementId: requirement.id,
         documentName: requirement.documentName,
-        required: UNIVERSAL_REQUIRED_LICENSE_DOCUMENTS.includes(requirement.documentName) || (heldPreviousLicense === "Yes" && requirement.documentName === "Existing License Copies"),
+        required: isLicenseDocumentRequired(requirement.documentName, category, heldPreviousLicense),
         fileName: existingItem?.fileName ?? "",
         received: existingItem?.received ?? false,
         verificationStatus: existingItem?.verificationStatus ?? "Not Received",
@@ -384,7 +420,7 @@ function buildDocumentChecklistSnapshot(category: LicenseApplication["licenseCat
       rows.push({
         requirementId: `LDR-${documentName.toUpperCase().replaceAll(/[^A-Z0-9]+/g, "-")}`,
         documentName,
-        required: UNIVERSAL_REQUIRED_LICENSE_DOCUMENTS.includes(documentName),
+        required: isLicenseDocumentRequired(documentName, category, heldPreviousLicense),
         fileName: existingItem?.fileName ?? "",
         received: existingItem?.received ?? false,
         verificationStatus: existingItem?.verificationStatus ?? "Not Received",
@@ -431,6 +467,39 @@ function addValidity(date: string, validityPeriod = "1 Year") {
 
 function isKnownDemoLicenseApplication(application: LicenseApplication) {
   return ["Omar Al Mansoori", "Nikolai Petrov", "Layla Haddad"].includes(application.applicantFullName) || ["APP-000001", "APP-000002", "APP-000003"].includes(application.id);
+}
+
+function coreLicenseDocumentsVerified(application: LicenseApplication) {
+  const documents = application.documentChecklistSnapshot ?? [];
+  const idDocument = documents.find((item) => item.documentName.toLowerCase().includes("passport") || item.documentName.toLowerCase().includes("national id"));
+  const photoDocument = documents.find((item) => item.documentName.toLowerCase().includes("photograph") || item.documentName.toLowerCase().includes("photo"));
+  return idDocument?.verificationStatus === "Verified" && photoDocument?.verificationStatus === "Verified";
+}
+
+function licenseIssueBlockers(application: LicenseApplication) {
+  const documents = application.documentChecklistSnapshot ?? [];
+  const idDocument = documents.find((item) => item.documentName.toLowerCase().includes("passport") || item.documentName.toLowerCase().includes("national id"));
+  const photoDocument = documents.find((item) => item.documentName.toLowerCase().includes("photograph") || item.documentName.toLowerCase().includes("photo"));
+  const blockers: string[] = [];
+
+  if (idDocument?.verificationStatus !== "Verified") {
+    blockers.push("Passport or National ID document must be verified before license issuance.");
+  }
+  if (photoDocument?.verificationStatus !== "Verified") {
+    blockers.push("Passport-sized photograph must be verified before license issuance.");
+  }
+  if (!licensePaymentConfirmed(application)) {
+    blockers.push("Payment must be verified, waived, or manually confirmed before license issuance.");
+  }
+  if (!application.approvalDate || !application.chiefReviewer) {
+    blockers.push("Chief approval information is incomplete.");
+  }
+
+  return blockers;
+}
+
+function licensePaymentConfirmed(application: LicenseApplication) {
+  return application.paymentStatus === "Paid" || application.paymentStatus === "Waived" || application.paymentConfirmationType === "Cash Paid" || application.paymentConfirmationType === "Manually Paid" || application.paymentConfirmationType === "Admin Ready Override";
 }
 
 function nextNoteId() {
@@ -583,6 +652,7 @@ function sanitizeBackupRecords(backup: BackupData): BackupData {
     costCenters: ensureRecordIds(backup.costCenters, "CC"),
     auditLogs: ensureRecordIds(backup.auditLogs, "AUD"),
     documents: ensureRecordIds(backup.documents, "DOC"),
+    applicationImports: ensureRecordIds(backup.applicationImports ?? [], "AIMP"),
     licenseApplications: ensureLicenseApplicationNumbers(backup.licenseApplications),
     licenseIntake: ensureRecordIds(backup.licenseIntake, "INT"),
     licenseReceipts: ensureRecordIds(backup.licenseReceipts ?? [], "RCT-2026"),
@@ -641,6 +711,7 @@ function validateBackup(value: unknown): { ok: true; backup: BackupData } | { ok
       costCenters: value.costCenters as CostCenter[],
       auditLogs: value.auditLogs as AuditLog[],
       documents: value.documents as SupportingDocument[],
+      applicationImports: Array.isArray(value.applicationImports) ? value.applicationImports as ApplicationImport[] : [],
       licenseApplications: value.licenseApplications as LicenseApplication[],
       licenseIntake: value.licenseIntake as LicenseIntake[],
       licenseReceipts: Array.isArray(value.licenseReceipts) ? value.licenseReceipts as LicenseReceipt[] : [],
@@ -674,6 +745,7 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
   const [costCenters, setCostCenters] = useState<CostCenter[]>(() => ensureRecordIds(initialCostCenters, "CC"));
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => ensureRecordIds(initialAuditLogs, "AUD"));
   const [documents, setDocuments] = useState<SupportingDocument[]>(() => ensureRecordIds(initialDocuments, "DOC"));
+  const [applicationImports, setApplicationImports] = useState<ApplicationImport[]>(() => ensureRecordIds(initialApplicationImports, "AIMP"));
   const [licenseApplications, setLicenseApplications] = useState<LicenseApplication[]>(() => ensureLicenseApplicationNumbers(initialLicenseApplications));
   const [licenseIntake, setLicenseIntake] = useState<LicenseIntake[]>(() => ensureRecordIds(initialLicenseIntake, "INT"));
   const [licenseReceipts, setLicenseReceipts] = useState<LicenseReceipt[]>(() => ensureRecordIds(initialLicenseReceipts, "RCT-2026"));
@@ -711,21 +783,24 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     queueMicrotask(() => {
       const storedAppSettings = readStoredObject<AppSettings>(storageKeys.appSettings, initialAppSettings);
+      const peopleFallback = storedAppSettings.mode === "real" ? [] : initialPeople;
+      const receiptsFallback = storedAppSettings.mode === "real" ? [] : initialReceipts;
       const licensingFallback = storedAppSettings.mode === "real" ? [] : initialLicenseApplications;
       const intakeFallback = storedAppSettings.mode === "real" ? [] : initialLicenseIntake;
       const storedFinancialPeriods = readStoredArray<FinancialPeriod>(storageKeys.financialPeriods, initialFinancialPeriods);
       const storedExpenses = withPeriods(readStoredRecords<Expense>(storageKeys.expenses, initialExpenses, "EXP"), storedFinancialPeriods);
 
-      setPeople(readStoredRecords<Person>(storageKeys.people, initialPeople, "PER"));
+      setPeople(readStoredRecords<Person>(storageKeys.people, peopleFallback, "PER"));
       setEvents(readStoredRecords<Event>(storageKeys.events, initialEvents, "EVT"));
       setFinancialPeriods(storedFinancialPeriods);
       setExpenses(storedExpenses);
       setReimbursements(syncReimbursements(storedExpenses, withPeriods(readStoredRecords<Reimbursement>(storageKeys.reimbursements, initialReimbursements, "RMB"), storedFinancialPeriods)));
       setRevenues(withPeriods(readStoredRecords<Revenue>(storageKeys.revenues, initialRevenues, "REV"), storedFinancialPeriods));
-      setReceipts(withPeriods(readStoredRecords<ReceiptIntake>(storageKeys.receipts, initialReceipts, "RCT"), storedFinancialPeriods));
+      setReceipts(withPeriods(readStoredRecords<ReceiptIntake>(storageKeys.receipts, receiptsFallback, "RCT"), storedFinancialPeriods));
       setCostCenters(readStoredRecords<CostCenter>(storageKeys.costCenters, initialCostCenters, "CC"));
       setAuditLogs(readStoredRecords<AuditLog>(storageKeys.auditLogs, initialAuditLogs, "AUD"));
       setDocuments(readStoredRecords<SupportingDocument>(storageKeys.documents, initialDocuments, "DOC"));
+      setApplicationImports(readStoredRecords<ApplicationImport>(storageKeys.applicationImports, [], "AIMP"));
       setLicenseApplications(ensureLicenseApplicationNumbers(backfillDemoFields(readStoredArray<LicenseApplication>(storageKeys.licenseApplications, licensingFallback), initialLicenseApplications)));
       setLicenseIntake(ensureRecordIds(backfillDemoFields(readStoredArray<LicenseIntake>(storageKeys.licenseIntake, intakeFallback), initialLicenseIntake), "INT"));
       setLicenseReceipts(readStoredLicenseReceipts());
@@ -783,6 +858,11 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
     if (!hasLoadedStorage) return;
     saveStoredArray(storageKeys.documents, documents);
   }, [documents, hasLoadedStorage]);
+
+  useEffect(() => {
+    if (!hasLoadedStorage) return;
+    saveStoredArray(storageKeys.applicationImports, applicationImports);
+  }, [applicationImports, hasLoadedStorage]);
 
   useEffect(() => {
     if (!hasLoadedStorage) return;
@@ -845,6 +925,7 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
       costCenters,
       auditLogs,
       documents,
+      applicationImports,
       licenseApplications,
       licenseIntake,
       licenseReceipts,
@@ -888,10 +969,19 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
       },
       addExpense: async (expenseInput) => {
         const duplicate = expenses.find((expense) => isPotentialExpenseDuplicate(expenseInput, expense));
+        const paidByPerson = people.find((person) => person.id === expenseInput.paidByPersonId || person.fullName === expenseInput.paidBy);
+        const linkedEvent = events.find((event) => event.id === expenseInput.linkedEventId || event.eventName === expenseInput.event);
         const expense: Expense = {
           ...withPeriod(expenseInput, financialPeriods),
           id: getNextSequentialId(expenses, "EXP"),
-          reimbursementStatus: expenseInput.reimbursable ? expenseInput.reimbursementStatus : "Not Reimbursable",
+          paidByPersonId: paidByPerson?.id ?? expenseInput.paidByPersonId,
+          paidByPersonName: paidByPerson?.fullName ?? expenseInput.paidBy,
+          linkedEventId: linkedEvent?.id ?? expenseInput.linkedEventId,
+          linkedEventName: linkedEvent?.eventName ?? expenseInput.linkedEventName ?? (expenseInput.event === "General Operations" ? "" : expenseInput.event),
+          eventRecordId: linkedEvent?.id ?? expenseInput.eventRecordId,
+          expensePurpose: expenseInput.expensePurpose || expenseInput.description,
+          costCenter: expenseInput.costCenter || "General Operations",
+          reimbursementStatus: expenseInput.reimbursable ? expenseInput.reimbursementStatus === "Not Reimbursable" ? "Outstanding" : expenseInput.reimbursementStatus : "Not Reimbursable",
           reconciliationStatus: expenseInput.reconciliationStatus ?? "Not Reconciled",
           possibleDuplicateOfId: duplicate?.id
         };
@@ -900,7 +990,7 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
           setReimbursements((currentReimbursements) => syncReimbursements(nextExpenses, currentReimbursements));
           return nextExpenses;
         });
-        audit("Expenses", expense.id, expense.description, "Created", null, expense);
+        audit("Expenses", expense.id, expense.description, "Expense Created", null, expense);
         setAppSettings((current) => ({
           ...current,
           lastQuickCategory: expense.category,
@@ -913,10 +1003,19 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
       addBatchExpenses: async (expenseInputs) => {
         const firstExpenseNumber = Number(getNextSequentialId(expenses, "EXP").replace("EXP-", ""));
         const createdExpenses = expenseInputs.map((expenseInput, index) => {
+          const paidByPerson = people.find((person) => person.id === expenseInput.paidByPersonId || person.fullName === expenseInput.paidBy);
+          const linkedEvent = events.find((event) => event.id === expenseInput.linkedEventId || event.eventName === expenseInput.event);
           const expense: Expense = {
             ...withPeriod(expenseInput, financialPeriods),
             id: `EXP-${String(firstExpenseNumber + index).padStart(6, "0")}`,
-            reimbursementStatus: expenseInput.reimbursable ? "Pending" : "Not Reimbursable",
+            paidByPersonId: paidByPerson?.id ?? expenseInput.paidByPersonId,
+            paidByPersonName: paidByPerson?.fullName ?? expenseInput.paidBy,
+            linkedEventId: linkedEvent?.id ?? expenseInput.linkedEventId,
+            linkedEventName: linkedEvent?.eventName ?? expenseInput.linkedEventName ?? (expenseInput.event === "General Operations" ? "" : expenseInput.event),
+            eventRecordId: linkedEvent?.id ?? expenseInput.eventRecordId,
+            expensePurpose: expenseInput.expensePurpose || expenseInput.description,
+            costCenter: expenseInput.costCenter || "General Operations",
+            reimbursementStatus: expenseInput.reimbursable ? "Outstanding" : "Not Reimbursable",
             reconciliationStatus: expenseInput.reconciliationStatus ?? "Not Reconciled",
             possibleDuplicateOfId: expenses.find((existing) => isPotentialExpenseDuplicate(expenseInput, existing))?.id
           };
@@ -933,14 +1032,22 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
               personOwed: input.personOwed,
               responsiblePerson: input.responsiblePerson,
               linkedExpense: expense.id,
+              sourceReceiptId: expense.sourceReceiptId,
               costCenterId: expense.costCenterId,
               costCenter: expense.costCenter,
+              linkedEventId: expense.linkedEventId,
+              linkedEventName: expense.linkedEventName,
               amount: expense.amount,
+              amountOwed: expense.amount,
               amountReimbursed: 0,
               outstandingBalance: expense.amount,
               dueDate: "",
-              status: "Pending Review",
+              status: "Outstanding",
               reimbursedDate: "",
+              settlementDate: "",
+              settlementMethod: "",
+              settlementReference: "",
+              settledBy: "",
               paymentReference: "Pending",
               reconciliationStatus: "Not Reconciled",
               reconciledBy: "",
@@ -959,21 +1066,31 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
         return createdExpenses;
       },
       convertReceiptToExpense: async (receipt) => {
+        const paidByPerson = people.find((person) => person.id === receipt.paidByPersonId || person.fullName === receipt.paidBy);
+        const linkedEvent = events.find((event) => event.id === receipt.linkedEventId || event.eventName === receipt.event);
         const expense: Expense = {
           id: getNextSequentialId(expenses, "EXP"),
           date: receipt.receiptDate || receipt.uploadDate,
           paidBy: receipt.paidBy,
+          paidByPersonId: paidByPerson?.id ?? receipt.paidByPersonId,
+          paidByPersonName: paidByPerson?.fullName ?? receipt.paidBy,
+          personToReimburseId: receipt.personToReimburseId ?? paidByPerson?.id,
+          personToReimburseName: receipt.personToReimburseName ?? receipt.paidBy,
           linkType: receipt.linkType,
           event: receipt.event,
+          eventRecordId: linkedEvent?.id,
+          linkedEventId: linkedEvent?.id ?? receipt.linkedEventId,
+          linkedEventName: linkedEvent?.eventName ?? receipt.linkedEventName ?? (receipt.event === "General Operations" ? "" : receipt.event),
           costCenterId: receipt.costCenterId,
-          costCenter: receipt.costCenter,
+          costCenter: receipt.costCenter || "General Operations",
           category: receipt.suggestedCategory,
-          description: `Receipt intake ${receipt.id} - ${receipt.vendor || "Unspecified vendor"}`,
+          expensePurpose: receipt.expensePurpose || receipt.notes || `Receipt register ${receipt.id}`,
+          description: receipt.expensePurpose || `Receipt register ${receipt.id} - ${receipt.vendor || "Unspecified vendor"}`,
           amount: receipt.amount,
           currency: receipt.currency,
           paymentMethod: receipt.paymentMethod,
           vendor: receipt.vendor,
-          receiptAttachment: receipt.fileName || "Receipt intake record",
+          receiptAttachment: receipt.fileName || "Receipt register record",
           receiptFiles: receipt.fileName
             ? [
                 {
@@ -989,9 +1106,10 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
             : [],
           sourceReceiptId: receipt.id,
           reimbursable: receipt.reimbursable,
-          reimbursementStatus: receipt.reimbursable ? "Pending" : "Not Reimbursable",
+          reimbursementStatus: receipt.reimbursable ? "Outstanding" : "Not Reimbursable",
           approvalStatus: "Pending Review",
           submittedBy: receipt.uploadedBy,
+          submittedDate: new Date().toISOString().slice(0, 10),
           reviewedBy: "",
           approvedBy: "",
           approvalDate: "",
@@ -1019,13 +1137,15 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
               ? {
                   ...item,
                   status: "Converted to Expense",
+                  ocrStatus: receipt.ocrStatus ? "Converted To Expense" : item.ocrStatus,
+                  mappingReviewed: true,
                   convertedExpenseId: expense.id
                 }
               : item
           )
         );
         audit("Receipt Intake", receipt.id, receipt.vendor || receipt.id, "Converted", receipt, { ...receipt, status: "Converted to Expense", convertedExpenseId: expense.id }, `Converted to ${expense.id}.`);
-        audit("Expenses", expense.id, expense.description, "Created", null, expense, `Created from ${receipt.id}.`);
+        audit("Expenses", expense.id, expense.description, receipt.ocrStatus ? "Expense Created From Receipt OCR" : "Expense Created", null, expense, `Created from ${receipt.id}.`);
 
         return expense;
       },
@@ -1039,14 +1159,28 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
         }
         const normalized: Expense = {
           ...withPeriod(expense, financialPeriods),
-          reimbursementStatus: expense.reimbursable ? expense.reimbursementStatus : "Not Reimbursable"
+          expensePurpose: expense.expensePurpose || expense.description,
+          costCenter: expense.costCenter || "General Operations",
+          reimbursementStatus: expense.reimbursable ? expense.reimbursementStatus === "Not Reimbursable" ? "Outstanding" : expense.reimbursementStatus : "Not Reimbursable"
         };
         setExpenses((currentExpenses) => {
           const nextExpenses = currentExpenses.map((item) => (item.id === normalized.id ? normalized : item));
           setReimbursements((currentReimbursements) => syncReimbursements(nextExpenses, currentReimbursements));
           return nextExpenses;
         });
-        audit("Expenses", normalized.id, normalized.description, statusChanged(previous, normalized) ? "Status Changed" : "Updated", previous, normalized);
+        const expenseAction: AuditAction =
+          previous?.approvalStatus !== normalized.approvalStatus && normalized.approvalStatus === "Submitted"
+            ? "Expense Submitted"
+            : previous?.approvalStatus !== normalized.approvalStatus && normalized.approvalStatus === "Approved"
+              ? "Expense Approved"
+              : previous?.approvalStatus !== normalized.approvalStatus && normalized.approvalStatus === "Rejected"
+                ? "Expense Rejected"
+                : previous?.approvalStatus !== normalized.approvalStatus && normalized.approvalStatus === "Closed"
+                  ? "Expense Closed"
+                  : statusChanged(previous, normalized)
+                    ? "Status Changed"
+                    : "Updated";
+        audit("Expenses", normalized.id, normalized.description, expenseAction, previous, normalized);
         return normalized;
       },
       deleteExpense: async (expense) => {
@@ -1084,17 +1218,25 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
         return receiptFile;
       },
       addReimbursement: async (reimbursementInput) => {
-        const amount = Number(reimbursementInput.amount ?? 0);
-        const amountReimbursed = Number(reimbursementInput.amountReimbursed ?? 0);
+        const amount = typeof reimbursementInput.amount === "number" ? reimbursementInput.amount : parseMoneyInput(String(reimbursementInput.amount ?? 0));
+        const amountReimbursed = typeof reimbursementInput.amountReimbursed === "number" ? reimbursementInput.amountReimbursed : parseMoneyInput(String(reimbursementInput.amountReimbursed ?? 0));
         const reimbursement: Reimbursement = {
           ...reimbursementInput,
           id: resolveNewRecordId(reimbursements, reimbursementInput.id, "RMB"),
           amount,
+          amountOwed: amount,
           amountReimbursed,
-          outstandingBalance: Math.max(0, amount - amountReimbursed)
+          outstandingBalance: Math.max(0, amount - amountReimbursed),
+          settlementDate: reimbursementInput.settlementDate ?? reimbursementInput.reimbursedDate ?? "",
+          settlementMethod: reimbursementInput.settlementMethod ?? "",
+          settlementReference: reimbursementInput.settlementReference ?? reimbursementInput.paymentReference ?? "",
+          settledBy: reimbursementInput.settledBy ?? "",
+          reimbursementProofFileName: reimbursementInput.reimbursementProofFileName ?? "",
+          reimbursementProofUploadedAt: reimbursementInput.reimbursementProofUploadedAt ?? "",
+          reimbursementProofNotes: reimbursementInput.reimbursementProofNotes ?? ""
         };
         setReimbursements((current) => [reimbursement, ...current]);
-        audit("Reimbursements", reimbursement.id, reimbursement.personOwed, "Created", null, reimbursement);
+        audit("Reimbursements", reimbursement.id, reimbursement.personOwed, "Reimbursement Created", null, reimbursement);
       },
       updateReimbursement: async (reimbursement) => {
         const previous = reimbursements.find((item) => item.id === reimbursement.id);
@@ -1104,19 +1246,33 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
           audit("Reimbursements", reimbursement.id, reimbursement.personOwed, "Updated", previous, reimbursement, `Closed-period edit warning for ${periodLabel(period)} was not confirmed.`);
           return;
         }
-        setReimbursements((current) =>
-          current.map((item) =>
-            item.id === reimbursement.id
-              ? {
-                  ...reimbursement,
-                  amount: Number(reimbursement.amount),
-                  amountReimbursed: Number(reimbursement.amountReimbursed),
-                  outstandingBalance: Math.max(0, Number(reimbursement.amount) - Number(reimbursement.amountReimbursed))
-                }
-              : item
-          )
-        );
-        audit("Reimbursements", reimbursement.id, reimbursement.personOwed, statusChanged(previous, reimbursement) ? "Status Changed" : "Updated", previous, reimbursement);
+        const normalized = {
+          ...reimbursement,
+          amount: typeof reimbursement.amount === "number" ? reimbursement.amount : parseMoneyInput(String(reimbursement.amount)),
+          amountOwed: typeof reimbursement.amount === "number" ? reimbursement.amount : parseMoneyInput(String(reimbursement.amount)),
+          amountReimbursed: typeof reimbursement.amountReimbursed === "number" ? reimbursement.amountReimbursed : parseMoneyInput(String(reimbursement.amountReimbursed)),
+          outstandingBalance: Math.max(0, (typeof reimbursement.amount === "number" ? reimbursement.amount : parseMoneyInput(String(reimbursement.amount))) - (typeof reimbursement.amountReimbursed === "number" ? reimbursement.amountReimbursed : parseMoneyInput(String(reimbursement.amountReimbursed)))),
+          settlementDate: reimbursement.settlementDate ?? reimbursement.reimbursedDate ?? "",
+          settlementReference: reimbursement.settlementReference ?? reimbursement.paymentReference ?? "",
+          reimbursementProofFileName: reimbursement.reimbursementProofFileName ?? "",
+          reimbursementProofUploadedAt: reimbursement.reimbursementProofUploadedAt ?? "",
+          reimbursementProofNotes: reimbursement.reimbursementProofNotes ?? ""
+        };
+        setReimbursements((current) => current.map((item) => (item.id === reimbursement.id ? normalized : item)));
+        if (!previous?.reimbursementProofFileName && normalized.reimbursementProofFileName) {
+          audit("Reimbursements", normalized.id, normalized.personOwed, "Reimbursement Proof Uploaded", previous, normalized, `Uploaded proof ${normalized.reimbursementProofFileName}.`);
+        }
+        const reimbursementAction: AuditAction =
+          previous?.status !== normalized.status && normalized.status === "Approved"
+            ? "Reimbursement Approved"
+            : previous?.status !== normalized.status && (normalized.status === "Fully Reimbursed" || normalized.status === "Closed" || normalized.status === "Reimbursed")
+              ? "Reimbursement Marked Paid"
+              : previous?.amountReimbursed !== normalized.amountReimbursed && normalized.amountReimbursed > 0
+                ? "Treasury Settlement Recorded"
+                : statusChanged(previous, normalized)
+                  ? "Status Changed"
+                  : "Updated";
+        audit("Reimbursements", normalized.id, normalized.personOwed, reimbursementAction, previous, normalized);
       },
       deleteReimbursement: async (reimbursement) => {
         setReimbursements((current) => current.filter((item) => item.id !== reimbursement.id));
@@ -1144,9 +1300,17 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
         audit("Revenue", revenue.id, revenue.source, "Deleted", revenue, null);
       },
       addReceipt: async (receiptInput) => {
+        const paidByPerson = people.find((person) => person.id === receiptInput.paidByPersonId || person.fullName === receiptInput.paidBy);
+        const linkedEvent = events.find((event) => event.id === receiptInput.linkedEventId || event.eventName === receiptInput.event);
         const receipt: ReceiptIntake = {
           ...withPeriod(receiptInput, financialPeriods),
           id: resolveNewRecordId(receipts, receiptInput.id, "RCT"),
+          paidByPersonId: paidByPerson?.id ?? receiptInput.paidByPersonId,
+          paidByPersonName: paidByPerson?.fullName ?? receiptInput.paidBy,
+          linkedEventId: linkedEvent?.id ?? receiptInput.linkedEventId,
+          linkedEventName: linkedEvent?.eventName ?? receiptInput.linkedEventName ?? (receiptInput.event === "General Operations" ? "" : receiptInput.event),
+          costCenter: receiptInput.costCenter || "General Operations",
+          expensePurpose: receiptInput.expensePurpose || receiptInput.notes,
           possibleDuplicateOfId: receipts.find((existing) => isPotentialReceiptDuplicate(receiptInput, existing))?.id
         };
         setReceipts((current) => [receipt, ...current]);
@@ -1154,7 +1318,17 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
       },
       updateReceipt: async (receipt) => {
         const previous = receipts.find((item) => item.id === receipt.id);
-        const normalized = withPeriod(receipt, financialPeriods);
+        const paidByPerson = people.find((person) => person.id === receipt.paidByPersonId || person.fullName === receipt.paidBy);
+        const linkedEvent = events.find((event) => event.id === receipt.linkedEventId || event.eventName === receipt.event);
+        const normalized = withPeriod({
+          ...receipt,
+          paidByPersonId: paidByPerson?.id ?? receipt.paidByPersonId,
+          paidByPersonName: paidByPerson?.fullName ?? receipt.paidBy,
+          linkedEventId: linkedEvent?.id ?? receipt.linkedEventId,
+          linkedEventName: linkedEvent?.eventName ?? receipt.linkedEventName ?? (receipt.event === "General Operations" ? "" : receipt.event),
+          costCenter: receipt.costCenter || "General Operations",
+          expensePurpose: receipt.expensePurpose || receipt.notes
+        }, financialPeriods);
         setReceipts((current) => current.map((item) => (item.id === receipt.id ? normalized : item)));
         audit("Receipt Intake", normalized.id, normalized.vendor || normalized.id, statusChanged(previous, normalized) ? "Status Changed" : "Updated", previous, normalized);
       },
@@ -1195,6 +1369,128 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
         setDocuments((current) => current.filter((item) => item.id !== document.id));
         audit("Document Register", document.id, document.title, "Deleted", document, null, "Document register entry deleted.");
       },
+      addApplicationImport: async (importInput) => {
+        const now = new Date().toISOString();
+        const applicationImport: ApplicationImport = {
+          ...importInput,
+          id: resolveNewRecordId(applicationImports, importInput.id, "AIMP"),
+          createdAt: importInput.createdAt || now,
+          updatedAt: now
+        };
+        setApplicationImports((current) => [applicationImport, ...current]);
+        audit("Application Import", applicationImport.id, applicationImport.fileName || applicationImport.id, "Application Import Created", null, applicationImport, "OCR-ready application import created.");
+        return applicationImport;
+      },
+      updateApplicationImport: async (applicationImport) => {
+        const previous = applicationImports.find((item) => item.id === applicationImport.id);
+        const normalized = { ...applicationImport, updatedAt: new Date().toISOString() };
+        setApplicationImports((current) => current.map((item) => (item.id === normalized.id ? normalized : item)));
+        audit("Application Import", normalized.id, normalized.fileName || normalized.id, statusChanged(previous, normalized) ? "Status Changed" : "Updated", previous, normalized);
+      },
+      deleteApplicationImport: async (applicationImport) => {
+        setApplicationImports((current) => current.filter((item) => item.id !== applicationImport.id));
+        audit("Application Import", applicationImport.id, applicationImport.fileName || applicationImport.id, "Deleted", applicationImport, null, "Application import deleted.");
+      },
+      convertApplicationImportToApplication: async (applicationImport) => {
+        const now = new Date().toISOString();
+        const category = normalizeLicenseCategory(getMappedValue(applicationImport.mappedFields, "licenseCategory") || "Professional Boxer");
+        const fee = currentFeeForCategory(category, licenseFeeSchedule);
+        const fullName = getMappedValue(applicationImport.mappedFields, "applicantFullName");
+        const passportNumber = getMappedValue(applicationImport.mappedFields, "passportNumber");
+        const nationalIdNumber = getMappedValue(applicationImport.mappedFields, "nationalIdNumber");
+        const email = getMappedValue(applicationImport.mappedFields, "email");
+        const phone = getMappedValue(applicationImport.mappedFields, "phone");
+        if (!fullName || !getMappedValue(applicationImport.mappedFields, "dateOfBirth") || !getMappedValue(applicationImport.mappedFields, "nationality") || (!passportNumber && !nationalIdNumber)) {
+          throw new Error("Full name, date of birth, nationality, and Passport OR National ID are required before creating an application.");
+        }
+        const duplicate = licenseApplications.find((existing) =>
+          [existing.applicantFullName.toLowerCase(), existing.fullLegalName?.toLowerCase()].includes(fullName.toLowerCase()) ||
+          Boolean(passportNumber && existing.passportNumber === passportNumber) ||
+          Boolean(nationalIdNumber && existing.nationalIdNumber === nationalIdNumber) ||
+          Boolean(email && existing.email.toLowerCase() === email.toLowerCase()) ||
+          Boolean(phone && existing.phone === phone)
+        );
+        const application = normalizeLicenseWorkflow({
+          id: getNextSequentialId(licenseApplications, "APP"),
+          sourceImportId: applicationImport.id,
+          applicationOrigin: applicationImport.applicationOrigin,
+          licenseIssueNumber: getNextLicenseIssueNumber(licenseApplications),
+          applicantFullName: fullName,
+          fullLegalName: fullName,
+          applicantPhotoFileName: "",
+          placeOfBirth: getMappedValue(applicationImport.mappedFields, "placeOfBirth"),
+          nationality: getMappedValue(applicationImport.mappedFields, "nationality"),
+          dateOfBirth: getMappedValue(applicationImport.mappedFields, "dateOfBirth"),
+          passportNumber,
+          nationalIdNumber,
+          identificationNumber: passportNumber || nationalIdNumber,
+          gender: getMappedValue(applicationImport.mappedFields, "gender") as LicenseApplication["gender"],
+          existingRegisteredLicenseNumber: getMappedValue(applicationImport.mappedFields, "existingRegisteredLicenseNumber"),
+          phone,
+          email,
+          address: getMappedValue(applicationImport.mappedFields, "address"),
+          city: getMappedValue(applicationImport.mappedFields, "city"),
+          country: getMappedValue(applicationImport.mappedFields, "country"),
+          postalCode: getMappedValue(applicationImport.mappedFields, "postalCode"),
+          emergencyContactName: getMappedValue(applicationImport.mappedFields, "emergencyContactName"),
+          emergencyContactRelationship: getMappedValue(applicationImport.mappedFields, "emergencyContactRelationship"),
+          emergencyContactPhone: getMappedValue(applicationImport.mappedFields, "emergencyContactPhone"),
+          licenseCategory: category,
+          otherCategoryDescription: "",
+          yearsOfExperience: getMappedValue(applicationImport.mappedFields, "yearsOfExperience"),
+          currentOrganizationTeam: getMappedValue(applicationImport.mappedFields, "currentOrganizationTeam"),
+          professionalCertificationsHeld: getMappedValue(applicationImport.mappedFields, "professionalCertificationsHeld"),
+          deniedLicense: getMappedValue(applicationImport.mappedFields, "deniedLicense") as LicenseApplication["deniedLicense"],
+          medicalCondition: getMappedValue(applicationImport.mappedFields, "medicalCondition") as LicenseApplication["medicalCondition"],
+          applicationSource: "Soft Copy",
+          applicationScanFileName: applicationImport.fileName,
+          supportingDocumentFileNames: applicationImport.fileName ? [applicationImport.fileName] : [],
+          documentChecklistSnapshot: buildDocumentChecklistSnapshot(category, licenseDocumentRequirements, [], ""),
+          amountDue: fee?.amount || 0,
+          amountPaid: parseMoneyInput(getMappedValue(applicationImport.mappedFields, "amountPaid")) || 0,
+          currency: fee?.currency || "AED",
+          paymentStatus: parseMoneyInput(getMappedValue(applicationImport.mappedFields, "amountPaid")) > 0 ? "Payment Submitted" : "Pending Payment",
+          paymentMethod: "Other",
+          paidTo: "UAE Athletic Commission",
+          paymentDate: "",
+          paymentReference: getMappedValue(applicationImport.mappedFields, "paymentReference"),
+          paymentNotes: `Created from OCR-ready import ${applicationImport.id}. Human review required.`,
+          reviewStatus: parseMoneyInput(getMappedValue(applicationImport.mappedFields, "amountPaid")) > 0 ? "Awaiting Payment Verification" : "New",
+          reviewedBy: "",
+          chiefReviewer: "",
+          reviewDate: "",
+          approvalDate: "",
+          rejectionReason: "",
+          internalNotes: applicationImport.notes,
+          stampStatus: "Not Available Yet",
+          stampDate: "",
+          stampedBy: "",
+          stampNotes: "",
+          licenseStatus: "Application Registered",
+          invoiceStatus: "Not Generated",
+          invoiceNumber: "",
+          invoiceDate: "",
+          invoiceAmount: fee?.amount || 0,
+          invoiceRecipient: fullName,
+          invoiceNotes: "",
+          completionChecklist: {
+            photoReceived: false,
+            identificationProvided: Boolean(passportNumber || nationalIdNumber),
+            applicationFormReceived: Boolean(applicationImport.fileName),
+            medicalReceived: false,
+            paymentReceived: false,
+            chiefReviewComplete: false,
+            stampComplete: false
+          },
+          createdAt: now,
+          updatedAt: now
+        });
+        setLicenseApplications((current) => [application, ...current]);
+        setApplicationImports((current) => current.map((item) => (item.id === applicationImport.id ? { ...item, ocrStatus: "Converted To Application", linkedApplicationId: application.id, duplicateWarning: duplicate?.id, updatedAt: now } : item)));
+        audit("Application Import", applicationImport.id, applicationImport.fileName || applicationImport.id, "Converted", applicationImport, { ...applicationImport, ocrStatus: "Converted To Application", linkedApplicationId: application.id }, `Created ${application.id} / ${application.licenseIssueNumber}.`);
+        audit("License Applications", application.id, application.applicantFullName, "Application Created From OCR Import", null, application, duplicate ? `Possible duplicate: ${duplicate.id}.` : `Created from import ${applicationImport.id}.`);
+        return application;
+      },
       addLicenseApplication: async (applicationInput) => {
         const now = new Date().toISOString();
         const requestedLicenseIssueNumber = applicationInput.licenseIssueNumber;
@@ -1232,6 +1528,9 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
         });
         setLicenseApplications((current) => [application, ...current]);
         audit("License Applications", application.id, application.applicantFullName, "Application created", null, application, `Registered LIN ${application.licenseIssueNumber}.`);
+        if (application.declarationAccepted) {
+          audit("License Applications", application.id, application.applicantFullName, "Declaration Accepted", null, application, "Applicant declaration completed with signature, name, and date.");
+        }
         if (online) {
           audit("License Applications", application.id, application.applicantFullName, "Invoice generated", null, application, `Generated invoice ${application.invoiceNumber}.`);
           if (application.paymentStatus === "Payment Submitted") {
@@ -1393,6 +1692,7 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
           amountReceived: application.amountPaid,
           currency: application.currency,
           paymentMethod: application.paymentMethod,
+          paymentDate: application.paymentDate,
           paymentReference: application.paymentReference,
           paidTo: application.paidTo,
           receivedBy: "Finance Admin",
@@ -1413,8 +1713,9 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
         if (application.reviewStatus === "Rejected" || application.licenseStatus === "Rejected") {
           throw new Error("Cannot generate a license for a rejected application.");
         }
-        if (!application.approvalDate || !application.chiefReviewer) {
-          throw new Error("Chief reviewer and approval date are required before license generation.");
+        const blockers = licenseIssueBlockers(application);
+        if (blockers.length) {
+          throw new Error(blockers.join("\n"));
         }
         const issueDate = application.approvalDate || new Date().toISOString().slice(0, 10);
         const generatedLicense: GeneratedLicense = {
@@ -1460,6 +1761,34 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
         setGeneratedLicenses((current) => current.filter((license) => !demoApplicationIds.has(license.applicationId)));
         setLicenseIntake((current) => current.filter((intake) => !["INT-000001", "INT-000002"].includes(intake.id)));
         audit("Data Management", "DEMO-CLEANUP", "Remove Demo Records Only", "Deleted", null, { removedApplications: demoApplicationIds.size }, "Removed known demo licensing records only.");
+      },
+      removeFaultyTestExpense: () => {
+        const faultyExpenses = expenses.filter((expense) => {
+          const description = `${expense.description ?? ""} ${expense.expensePurpose ?? ""}`.toLowerCase();
+          return expense.id === "EXP-000001" && (expense.amount === 10.59 || description.includes("accommodation for meydan event (4 rooms)"));
+        });
+        if (!faultyExpenses.length) return 0;
+
+        const faultyExpenseIds = new Set(faultyExpenses.map((expense) => expense.id));
+        const linkedReceiptIds = new Set(faultyExpenses.map((expense) => expense.sourceReceiptId).filter(Boolean));
+        setExpenses((current) => current.filter((expense) => !faultyExpenseIds.has(expense.id)));
+        setReimbursements((current) => current.filter((reimbursement) => !faultyExpenseIds.has(reimbursement.linkedExpense)));
+        setReceipts((current) => current.filter((receipt) => !faultyExpenseIds.has(receipt.convertedExpenseId ?? "") && !linkedReceiptIds.has(receipt.id)));
+        audit("Data Management", "EXP-000001", "Remove Faulty Test Expense EXP-000001", "Faulty Test Expense Removed", faultyExpenses, { removedExpenses: faultyExpenses.length }, "Removed faulty Meydan accommodation test expense and clearly linked local records.");
+        return faultyExpenses.length;
+      },
+      cleanupOrphanedReferences: () => {
+        const expenseIds = new Set(expenses.map((expense) => expense.id));
+        const receiptIds = new Set(receipts.map((receipt) => receipt.id));
+        const orphanedReimbursements = reimbursements.filter((reimbursement) => reimbursement.linkedExpense && !expenseIds.has(reimbursement.linkedExpense)).length;
+        const orphanedReceipts = receipts.filter((receipt) => receipt.convertedExpenseId && !expenseIds.has(receipt.convertedExpenseId)).length;
+        const expensesWithMissingReceipt = expenses.filter((expense) => expense.sourceReceiptId && !receiptIds.has(expense.sourceReceiptId)).length;
+
+        setReimbursements((current) => current.filter((reimbursement) => !reimbursement.linkedExpense || expenseIds.has(reimbursement.linkedExpense)));
+        setReceipts((current) => current.map((receipt) => receipt.convertedExpenseId && !expenseIds.has(receipt.convertedExpenseId) ? { ...receipt, convertedExpenseId: "", status: "Needs Review" } : receipt));
+        setExpenses((current) => current.map((expense) => expense.sourceReceiptId && !receiptIds.has(expense.sourceReceiptId) ? { ...expense, sourceReceiptId: "", receiptAttachment: "" } : expense));
+        audit("Data Management", "REFERENCE-CLEANUP", "Find Orphaned / Deleted References", "Updated", null, { orphanedReimbursements, orphanedReceipts, expensesWithMissingReceipt }, "Cleared local references to deleted expenses or receipts.");
+        return { orphanedReimbursements, orphanedReceipts: orphanedReceipts + expensesWithMissingReceipt };
       },
       addLicenseFeeScheduleItem: async (itemInput) => {
         const item: LicenseFeeScheduleItem = { ...itemInput, category: normalizeLicenseCategory(itemInput.category), id: resolveNewRecordId(licenseFeeSchedule, itemInput.id, "LFS") };
@@ -1553,6 +1882,7 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
           costCenters,
           auditLogs,
           documents,
+          applicationImports,
           licenseApplications,
           licenseIntake,
           licenseReceipts,
@@ -1590,6 +1920,7 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
         setCostCenters(sanitizedBackup.costCenters);
         setAuditLogs(sanitizedBackup.auditLogs);
         setDocuments(sanitizedBackup.documents);
+        setApplicationImports(sanitizedBackup.applicationImports);
         setLicenseApplications(sanitizedBackup.licenseApplications);
         setLicenseIntake(sanitizedBackup.licenseIntake);
         setLicenseReceipts(sanitizedBackup.licenseReceipts);
@@ -1615,6 +1946,7 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
           costCenters: initialCostCenters,
           auditLogs: initialAuditLogs,
           documents: initialDocuments,
+          applicationImports: initialApplicationImports,
           licenseApplications: initialLicenseApplications,
           licenseIntake: initialLicenseIntake,
           licenseReceipts: initialLicenseReceipts,
@@ -1637,6 +1969,7 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
         setCostCenters(sanitizedDemoData.costCenters);
         setAuditLogs(sanitizedDemoData.auditLogs);
         setDocuments(sanitizedDemoData.documents);
+        setApplicationImports(sanitizedDemoData.applicationImports);
         setLicenseApplications(sanitizedDemoData.licenseApplications);
         setLicenseIntake(sanitizedDemoData.licenseIntake);
         setLicenseReceipts(sanitizedDemoData.licenseReceipts);
@@ -1660,6 +1993,7 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
         setCostCenters([]);
         setAuditLogs([]);
         setDocuments([]);
+        setApplicationImports([]);
         setLicenseApplications([]);
         setLicenseIntake([]);
         setLicenseReceipts([]);
@@ -1672,7 +2006,7 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
         setFinancialPeriods([]);
       }
     }),
-    [appSettings, audit, auditLogs, costCenters, documents, events, expenses, financialPeriods, generatedLicenses, hasLoadedStorage, licenseApplications, licenseDocumentRequirements, licenseFeeSchedule, licenseIntake, licenseReceipts, paymentSettings, people, receipts, reimbursements, revenues, stampSettings, writeAuditLog]
+    [appSettings, applicationImports, audit, auditLogs, costCenters, documents, events, expenses, financialPeriods, generatedLicenses, hasLoadedStorage, licenseApplications, licenseDocumentRequirements, licenseFeeSchedule, licenseIntake, licenseReceipts, paymentSettings, people, receipts, reimbursements, revenues, stampSettings, writeAuditLog]
   );
 
   return <FinanceDataContext.Provider value={value}>{children}</FinanceDataContext.Provider>;

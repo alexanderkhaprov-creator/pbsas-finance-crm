@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { RecordFormModal } from "@/components/record-form-modal";
 import { StatusBadge } from "@/components/status-badge";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { parseMoneyInput } from "@/lib/money-utils";
 import { confidentialityLevels, currencies, documentLinkedModules, documentTypes, documentVerificationStatuses } from "@/lib/options";
 import type { SupportingDocument } from "@/types";
 
@@ -83,7 +84,7 @@ export default function DocumentRegisterPage() {
           ]}
           onClose={() => setEditing(null)}
           onSubmit={async (document) => {
-            const normalized = { ...document, amount: Number(document.amount) };
+            const normalized = { ...document, amount: typeof document.amount === "number" ? document.amount : parseMoneyInput(String(document.amount)) };
             if (normalized.id) {
               await updateDocument(normalized);
             } else {

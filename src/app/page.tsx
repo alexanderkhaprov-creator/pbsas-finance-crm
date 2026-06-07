@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { QuickExpenseEntry } from "@/components/quick-expense-entry";
 import { StatusBadge } from "@/components/status-badge";
 import { useFinanceData } from "@/components/finance-data-provider";
+import { getLicenseRevenueSummary } from "@/lib/license-revenue";
 
 function SummaryList({ title, totals }: { title: string; totals: Record<string, number> }) {
   const max = Math.max(1, ...Object.values(totals));
@@ -47,8 +48,15 @@ function ActivityFeed({ expenses }: { expenses: ReturnType<typeof useFinanceData
   );
 }
 
+function coreDocumentsVerified(application: ReturnType<typeof useFinanceData>["licenseApplications"][number]) {
+  const documents = application.documentChecklistSnapshot ?? [];
+  const idDocument = documents.find((item) => item.documentName.toLowerCase().includes("passport") || item.documentName.toLowerCase().includes("national id"));
+  const photoDocument = documents.find((item) => item.documentName.toLowerCase().includes("photograph") || item.documentName.toLowerCase().includes("photo"));
+  return idDocument?.verificationStatus === "Verified" && photoDocument?.verificationStatus === "Verified";
+}
+
 export default function DashboardPage() {
-  const { expenses, reimbursements, receipts, costCenters, auditLogs, documents, appSettings, licenseApplications, licenseIntake, licenseReceipts } = useFinanceData();
+  const { expenses, reimbursements, receipts, costCenters, auditLogs, documents, appSettings, applicationImports, licenseApplications, licenseIntake, licenseReceipts } = useFinanceData();
   const dashboardMetrics = getDashboardMetrics(expenses, reimbursements);
   const byEvent = totalExpensesByField(expenses, "event");
   const byCategory = totalExpensesByField(expenses, "category");
@@ -64,7 +72,13 @@ export default function DashboardPage() {
   const currentMonth = new Date().toISOString().slice(0, 7);
   const pendingReceipts = receipts.filter((receipt) => receipt.status === "New" || receipt.status === "Needs Review");
   const receiptsConvertedThisMonth = receipts.filter((receipt) => receipt.status === "Converted to Expense" && receipt.uploadDate.startsWith(currentMonth));
+  const applicationImportsAwaitingMapping = applicationImports.filter((item) => ["Uploaded", "Text Extracted", "Mapping Review"].includes(item.ocrStatus));
+  const receiptImportsAwaitingMapping = receipts.filter((receipt) => receipt.ocrStatus && ["Uploaded", "Text Extracted", "Mapping Review"].includes(receipt.ocrStatus));
+  const importsConvertedThisMonth = applicationImports.filter((item) => item.ocrStatus === "Converted To Application" && item.updatedAt.startsWith(currentMonth)).length + receipts.filter((receipt) => receipt.ocrStatus === "Converted To Expense" && receipt.uploadDate.startsWith(currentMonth)).length;
+  const lowConfidenceImports = applicationImports.filter((item) => ["Low", "Manual Review Required"].includes(item.confidenceLevel)).length + receipts.filter((receipt) => receipt.confidenceLevel && ["Low", "Manual Review Required"].includes(receipt.confidenceLevel)).length;
   const pendingApprovals = expenses.filter((expense) => expense.approvalStatus === "Submitted" || expense.approvalStatus === "Pending Review");
+  const awaitingApproval = expenses.filter((expense) => expense.approvalStatus === "Submitted" || expense.approvalStatus === "Under Review");
+  const awaitingReview = expenses.filter((expense) => expense.approvalStatus === "Pending Review" || expense.approvalStatus === "Under Review");
   const receiptsAwaitingReview = receipts.filter((receipt) => receipt.status === "New" || receipt.status === "Needs Review");
   const costCentersOverBudget = costCenters.filter((costCenter) => (byCostCenter[costCenter.name] ?? 0) > costCenter.budgetAmount);
   const weekAgo = new Date();
@@ -79,13 +93,18 @@ export default function DashboardPage() {
     totals[expense.currency] = (totals[expense.currency] ?? 0) + expense.amount;
     return totals;
   }, {});
-  const largestOutstanding = [...reimbursements].sort((a, b) => b.outstandingBalance - a.outstandingBalance)[0];
   const largestCostCenterSpend = Object.entries(byCostCenter).sort((a, b) => b[1] - a[1])[0];
+  const licenseRevenue = getLicenseRevenueSummary(licenseApplications);
   const overdueReimbursements = reimbursements.filter((item) => item.dueDate && item.outstandingBalance > 0 && item.dueDate < "2026-06-02");
+  const reimbursementsDue = reimbursements.filter((item) => item.outstandingBalance > 0 && item.status !== "Closed");
   const missingDocumentExpenses = expenses.filter((expense) => !documents.some((document) => document.linkedModule === "Expense" && document.linkedRecordId === expense.id));
   const licenseSummary = {
     pendingPayment: licenseApplications.filter((application) => application.paymentStatus === "Pending Payment" || application.paymentStatus === "Partially Paid").length,
     paymentSubmittedAwaitingVerification: licenseApplications.filter((application) => application.paymentStatus === "Payment Submitted" || application.reviewStatus === "Awaiting Payment Verification").length,
+    paymentProofRejected: licenseApplications.filter((application) => application.paymentStatus === "Rejected").length,
+    pendingPaymentSectionReview: licenseApplications.filter((application) => application.reviewStatus === "Pending Review - Payment Section").length,
+    manualPaymentConfirmations: licenseApplications.filter((application) => application.paymentConfirmationType === "Cash Paid" || application.paymentConfirmationType === "Manually Paid").length,
+    blockedByCoreDocuments: licenseApplications.filter((application) => !coreDocumentsVerified(application)).length,
     paidApplications: licenseApplications.filter((application) => application.paymentStatus === "Paid" || application.paymentStatus === "Waived").length,
     eligibleForChiefReview: licenseApplications.filter((application) => application.reviewStatus === "Eligible For Chief Review").length,
     blockedByMissingPayment: licenseApplications.filter((application) => application.paymentStatus !== "Paid" && application.paymentStatus !== "Waived" && ["Eligible For Chief Review", "Under Chief Review", "Pending Chief Review", "Approved by Chief"].includes(application.reviewStatus)).length,
@@ -116,11 +135,17 @@ export default function DashboardPage() {
         <MetricCard label="Reimbursable amount" value={formatCurrency(dashboardMetrics.totalReimbursableAmount)} detail="Eligible for repayment" />
         <MetricCard label="Pending reimbursement" value={formatCurrency(dashboardMetrics.totalPendingReimbursement)} detail="Open reimbursements" />
         <MetricCard label="Reimbursed amount" value={formatCurrency(dashboardMetrics.totalReimbursedAmount)} detail="Paid back" />
-        <MetricCard label="New receipts pending review" value={String(pendingReceipts.length)} detail="Receipt intake queue" />
+        <MetricCard label="New receipts pending review" value={String(pendingReceipts.length)} detail="Receipt register queue" />
         <MetricCard label="Receipts converted this month" value={String(receiptsConvertedThisMonth.length)} detail="Converted to expenses" />
-        <MetricCard label="Outstanding reimbursements" value={formatCurrency(sumOutstanding(reimbursements))} detail="Current liability" />
+        <MetricCard label="Application imports awaiting mapping review" value={String(applicationImportsAwaitingMapping.length)} detail="OCR-ready application queue" />
+        <MetricCard label="Receipt imports awaiting mapping review" value={String(receiptImportsAwaitingMapping.length)} detail="Receipt OCR queue" />
+        <MetricCard label="Imports converted this month" value={String(importsConvertedThisMonth)} detail="Application and receipt imports" />
+        <MetricCard label="Low-confidence imports" value={String(lowConfidenceImports)} detail="Manual review required" />
+        <MetricCard label="Outstanding reimbursements" value={formatCurrency(sumOutstanding(reimbursements))} detail="Current amount owed" />
+        <MetricCard label="Expenses Awaiting Approval" value={String(awaitingApproval.length)} detail={formatCurrency(awaitingApproval.reduce((sum, expense) => sum + expense.amount, 0))} />
+        <MetricCard label="Expenses Awaiting Review" value={String(awaitingReview.length)} detail={formatCurrency(awaitingReview.reduce((sum, expense) => sum + expense.amount, 0))} />
         <MetricCard label="Pending approvals" value={String(pendingApprovals.length)} detail="Submitted or pending review" />
-        <MetricCard label="Receipts awaiting review" value={String(receiptsAwaitingReview.length)} detail="Intake queue" />
+        <MetricCard label="Receipts awaiting review" value={String(receiptsAwaitingReview.length)} detail="Register queue" />
         <MetricCard label="Cost centers over budget" value={String(costCentersOverBudget.length)} detail="Budget exceptions" />
         <MetricCard label="Unreconciled expenses" value={String(unreconciledExpenses.length)} detail={formatCurrency(unreconciledExpenses.reduce((sum, expense) => sum + expense.amount, 0))} />
         <MetricCard label="Disputed expenses" value={String(disputedExpenses.length)} detail={formatCurrency(disputedExpenses.reduce((sum, expense) => sum + expense.amount, 0))} />
@@ -129,6 +154,10 @@ export default function DashboardPage() {
         <MetricCard label="Total license applications" value={String(licenseApplications.length)} detail="Application registry" />
         <MetricCard label="Applications awaiting payment" value={String(licenseSummary.pendingPayment)} detail="Payment follow-up" />
         <MetricCard label="Payment submitted awaiting verification" value={String(licenseSummary.paymentSubmittedAwaitingVerification)} detail="Finance verification queue" />
+        <MetricCard label="Payment Proof Rejected" value={String(licenseSummary.paymentProofRejected)} detail="Rejected proof requires payment review" />
+        <MetricCard label="Pending Payment Section Review" value={String(licenseSummary.pendingPaymentSectionReview)} detail="Payment section queue" />
+        <MetricCard label="Manual Payment Confirmations" value={String(licenseSummary.manualPaymentConfirmations)} detail="Cash or manually paid" />
+        <MetricCard label="Applications Blocked by Core Documents" value={String(licenseSummary.blockedByCoreDocuments)} detail="Passport/ID or photo not verified" />
         <MetricCard label="Receipts generated" value={String(licenseSummary.receiptsGenerated)} detail="License payment receipts" />
         <MetricCard label="Awaiting document verification" value={String(licenseSummary.awaitingDocumentVerification)} detail="Received but not verified" />
         <MetricCard label="Paid applications" value={String(licenseSummary.paidApplications)} detail="Paid or waived" />
@@ -140,6 +169,7 @@ export default function DashboardPage() {
         <MetricCard label="Licenses issued this month" value={String(licenseSummary.issuedThisMonth)} detail={`${licenseSummary.issued} total issued`} />
         <MetricCard label="Historical applications imported" value={String(licenseSummary.historicalImported)} detail={`${licenseIntake.filter((intake) => intake.intakeStatus === "Converted to Application").length} converted intakes`} />
         <MetricCard label="Applications rejected" value={String(licenseSummary.rejected)} detail="Rejected applications" />
+        <MetricCard label="Reimbursements Due" value={String(reimbursementsDue.length)} detail={formatCurrency(reimbursementsDue.reduce((sum, item) => sum + item.outstandingBalance, 0))} />
       </div>
       <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <MetricCard label="Unreviewed receipts" value={String(receiptsAwaitingReview.length)} detail="Needs intake action" />
@@ -151,16 +181,24 @@ export default function DashboardPage() {
       <section className="mt-6 rounded border border-black/10 bg-white p-5 shadow-soft">
         <h3 className="text-base font-semibold text-ink">Treasury Summary</h3>
         <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard label="Outstanding reimbursements" value={formatCurrency(sumOutstanding(reimbursements))} detail="Total unpaid liability" />
+          <MetricCard label="Outstanding reimbursements" value={formatCurrency(sumOutstanding(reimbursements))} detail="Total amount owed" />
           <MetricCard label="Approved reimbursements" value={formatCurrency(approvedReimbursements.reduce((sum, item) => sum + item.outstandingBalance, 0))} detail={`${approvedReimbursements.length} approved records`} />
           <MetricCard label="Pending expenses" value={formatCurrency(dashboardMetrics.totalPendingExpenses)} detail="Pending review spend" />
           <MetricCard label="Reconciled expenses" value={formatCurrency(reconciledExpenses.reduce((sum, expense) => sum + expense.amount, 0))} detail={`${reconciledExpenses.length} records`} />
-          <MetricCard label="Largest liability" value={largestOutstanding ? largestOutstanding.personOwed : "None"} detail={largestOutstanding ? formatCurrency(largestOutstanding.outstandingBalance) : "No liability"} />
           <MetricCard label="Largest cost center" value={largestCostCenterSpend?.[0] ?? "None"} detail={largestCostCenterSpend ? formatCurrency(largestCostCenterSpend[1]) : "No spend"} />
         </div>
         <div className="mt-4 grid gap-4 xl:grid-cols-2">
           <SummaryList title="Expenses by currency" totals={expensesByCurrency} />
           <SummaryList title="Monthly totals" totals={byMonth} />
+        </div>
+      </section>
+      <section className="mt-6 rounded border border-black/10 bg-white p-5 shadow-soft">
+        <h3 className="text-base font-semibold text-ink">License Revenue</h3>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="Total license revenue received" value={formatCurrency(licenseRevenue.totalRevenue)} detail={`${licenseRevenue.paidApplications.length} confirmed paid applications`} />
+          {licenseRevenue.byCategory.slice(0, 3).map((row) => (
+            <MetricCard key={row.category} label={row.category} value={formatCurrency(row.totalIncome)} detail={`${row.paidCount} paid · avg ${formatCurrency(row.feeAmount)}`} />
+          ))}
         </div>
       </section>
       <div className="mt-6 grid gap-4 xl:grid-cols-3">

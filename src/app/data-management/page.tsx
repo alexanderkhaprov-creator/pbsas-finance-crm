@@ -45,7 +45,7 @@ function toCsv(rows: Array<Record<string, unknown>>) {
 }
 
 export default function DataManagementPage() {
-  const { people, events, costCenters, expenses, reimbursements, revenues, receipts, auditLogs, documents, licenseApplications, licenseIntake, licenseReceipts, generatedLicenses, licenseFeeSchedule, licenseDocumentRequirements, stampSettings, appSettings, financialPeriods, exportBackup, validateBackupData, importBackup, resetDemoData, clearLocalData, removeDemoRecordsOnly, markBackupCompleted, setDataMode, updateFinancialPeriod } = useFinanceData();
+  const { people, events, costCenters, expenses, reimbursements, revenues, receipts, auditLogs, documents, applicationImports, licenseApplications, licenseIntake, licenseReceipts, generatedLicenses, licenseFeeSchedule, licenseDocumentRequirements, stampSettings, appSettings, financialPeriods, exportBackup, validateBackupData, importBackup, resetDemoData, clearLocalData, removeDemoRecordsOnly, removeFaultyTestExpense, cleanupOrphanedReferences, markBackupCompleted, setDataMode, updateFinancialPeriod } = useFinanceData();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -138,6 +138,7 @@ export default function DataManagementPage() {
           ["Reimbursements", reimbursements.length],
           ["Revenues", revenues.length],
           ["Documents", documents.length],
+          ["Application Imports", applicationImports.length],
           ["License Applications", licenseApplications.length],
           ["License Intake", licenseIntake.length],
           ["License Receipts", licenseReceipts.length],
@@ -184,6 +185,25 @@ export default function DataManagementPage() {
             setError("");
           }}>
             Remove Demo Records Only
+          </button>
+        </ActionCard>
+        <ActionCard title="Remove Faulty Test Expense EXP-000001" description="Remove the known faulty Meydan accommodation test expense only if it matches the specific amount or description rule.">
+          <button className="inline-flex items-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100" onClick={() => {
+            if (!window.confirm("Remove faulty test expense EXP-000001 and clearly linked reimbursement/receipt records if it matches the Meydan accommodation test rule?")) return;
+            const removed = removeFaultyTestExpense();
+            setMessage(removed ? `Removed ${removed} faulty test expense record.` : "No matching faulty test expense was found.");
+            setError("");
+          }}>
+            Remove Faulty Test Expense EXP-000001
+          </button>
+        </ActionCard>
+        <ActionCard title="Find Orphaned / Deleted References" description="Clear local references to deleted expenses, receipts, or reimbursement records so dashboard and reports recalculate from current records only.">
+          <button className="inline-flex items-center gap-2 rounded border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-steel hover:border-gold hover:text-ink" onClick={() => {
+            const result = cleanupOrphanedReferences();
+            setMessage(`Reference cleanup complete. Removed ${result.orphanedReimbursements} orphaned reimbursements and cleared ${result.orphanedReceipts} receipt references.`);
+            setError("");
+          }}>
+            Find Orphaned / Deleted References
           </button>
         </ActionCard>
         <ActionCard title="Stamp Settings Summary" description="Current UAEAC license stamping setup. Edit details from the Stamp Settings page.">
@@ -256,10 +276,10 @@ export default function DataManagementPage() {
         <ActionCard title="Export Expenses CSV" description="Download the current expense register as CSV.">
           <button className="inline-flex items-center gap-2 rounded border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-steel hover:border-gold hover:text-ink" onClick={() => exportCsv("expenses", expenses as unknown as Array<Record<string, unknown>>)}><Download className="h-4 w-4" />Export Expenses CSV</button>
         </ActionCard>
-        <ActionCard title="Export Reimbursements CSV" description="Download reimbursement liabilities as CSV.">
+        <ActionCard title="Export Reimbursements CSV" description="Download reimbursement amount owed records as CSV.">
           <button className="inline-flex items-center gap-2 rounded border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-steel hover:border-gold hover:text-ink" onClick={() => exportCsv("reimbursements", reimbursements as unknown as Array<Record<string, unknown>>)}><Download className="h-4 w-4" />Export Reimbursements CSV</button>
         </ActionCard>
-        <ActionCard title="Export Receipts CSV" description="Download receipt intake records as CSV.">
+        <ActionCard title="Export Receipts CSV" description="Download receipt register records as CSV.">
           <button className="inline-flex items-center gap-2 rounded border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-steel hover:border-gold hover:text-ink" onClick={() => exportCsv("receipts", receipts as unknown as Array<Record<string, unknown>>)}><Download className="h-4 w-4" />Export Receipts CSV</button>
         </ActionCard>
         <ActionCard title="Export Documents CSV" description="Download the document register as CSV.">

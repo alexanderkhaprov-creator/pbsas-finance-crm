@@ -5,6 +5,7 @@ import { useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { InternalNotesPanel } from "@/components/internal-notes-panel";
 import { currencies, expenseCategories, expenseLinkTypes, reconciliationStatuses } from "@/lib/options";
+import { parseMoneyInput } from "@/lib/money-utils";
 import type { ApprovalStatus, Expense, ReimbursementStatus } from "@/types";
 
 type ExpenseFormModalProps = {
@@ -12,23 +13,29 @@ type ExpenseFormModalProps = {
   expenseIdPreview: string;
   events: string[];
   people: string[];
+  peopleRecords: Array<{ id: string; fullName: string }>;
+  eventRecords: Array<{ id: string; eventName: string }>;
   costCenters: Array<{ id: string; name: string }>;
   onClose: () => void;
   onSubmit: (expense: Omit<Expense, "id"> | Expense, receiptFiles: File[], receiptNotes: string) => void | Promise<void>;
 };
 
-const approvalStatuses: ApprovalStatus[] = ["Draft", "Submitted", "Pending Review", "Approved", "Rejected"];
-const reimbursementStatuses: ReimbursementStatus[] = ["Pending", "Approved", "Reimbursed"];
+const approvalStatuses: ApprovalStatus[] = ["Draft", "Submitted", "Under Review", "Approved", "Rejected", "Reimbursed", "Closed"];
+const reimbursementStatuses: ReimbursementStatus[] = ["Outstanding", "Approved", "Partially Reimbursed", "Fully Reimbursed", "Disputed", "Closed"];
 
-function defaultExpense(events: string[], people: string[], costCenters: Array<{ id: string; name: string }>): Omit<Expense, "id"> {
+function defaultExpense(events: string[], people: string[], costCenters: Array<{ id: string; name: string }>, peopleRecords: Array<{ id: string; fullName: string }>): Omit<Expense, "id"> {
+  const firstPerson = peopleRecords[0];
   return {
     date: new Date().toISOString().slice(0, 10),
-    paidBy: people[0] ?? "",
+    paidBy: firstPerson?.fullName ?? people[0] ?? "",
+    paidByPersonId: firstPerson?.id,
+    paidByPersonName: firstPerson?.fullName ?? people[0] ?? "",
     linkType: "General Operations",
     event: events[0] ?? "General Operations",
     costCenterId: costCenters[0]?.id,
-    costCenter: costCenters[0]?.name ?? "",
-    category: "Miscellaneous",
+    costCenter: costCenters[0]?.name ?? "General Operations",
+    category: "General Operations",
+    expensePurpose: "",
     description: "",
     amount: 0,
     currency: "AED",
@@ -39,7 +46,9 @@ function defaultExpense(events: string[], people: string[], costCenters: Array<{
     reimbursementStatus: "Not Reimbursable",
     approvalStatus: "Draft",
     submittedBy: people[0] ?? "",
+    submittedDate: "",
     reviewedBy: "",
+    reviewedDate: "",
     approvedBy: "",
     approvalDate: "",
     rejectionReason: "",
@@ -60,8 +69,8 @@ function FieldLabel({ children, required = false }: { children: string; required
   );
 }
 
-export function ExpenseFormModal({ expense, expenseIdPreview, events, people, costCenters, onClose, onSubmit }: ExpenseFormModalProps) {
-  const [form, setForm] = useState<Expense | Omit<Expense, "id">>(expense ?? defaultExpense(events, people, costCenters));
+export function ExpenseFormModal({ expense, expenseIdPreview, events, people, peopleRecords, eventRecords, costCenters, onClose, onSubmit }: ExpenseFormModalProps) {
+  const [form, setForm] = useState<Expense | Omit<Expense, "id">>(expense ?? defaultExpense(events, people, costCenters, peopleRecords));
   const [receiptFiles, setReceiptFiles] = useState<File[]>([]);
   const [receiptNotes, setReceiptNotes] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -76,6 +85,8 @@ export function ExpenseFormModal({ expense, expenseIdPreview, events, people, co
     if (!form.date) nextErrors.date = "Date is required.";
     if (!form.paidBy) nextErrors.paidBy = "Paid by is required.";
     if (!form.category) nextErrors.category = "Category is required.";
+    if (!form.expensePurpose?.trim()) nextErrors.expensePurpose = "Expense purpose is required.";
+    if (!form.costCenterId && form.costCenter !== "General Operations") nextErrors.costCenter = "Select a cost center or General Operations.";
     if (!form.description.trim()) nextErrors.description = "Description is required.";
     if (!form.amount || Number(form.amount) <= 0) nextErrors.amount = "Enter an amount greater than zero.";
     if (!form.currency) nextErrors.currency = "Currency is required.";
@@ -90,7 +101,7 @@ export function ExpenseFormModal({ expense, expenseIdPreview, events, people, co
     await onSubmit(
       {
         ...form,
-        amount: Number(form.amount),
+        amount: typeof form.amount === "number" ? form.amount : parseMoneyInput(String(form.amount)),
         receiptAttachment: receiptFiles[0]?.name ?? form.receiptAttachment,
         reimbursementStatus: form.reimbursable ? form.reimbursementStatus : "Not Reimbursable"
       },
@@ -126,9 +137,13 @@ export function ExpenseFormModal({ expense, expenseIdPreview, events, people, co
               </label>
               <label>
                 <FieldLabel required>Paid by</FieldLabel>
-                <select className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.paidBy} onChange={(event) => update("paidBy", event.target.value)}>
-                  {people.map((person) => (
-                    <option key={person} value={person}>{person}</option>
+                <select className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.paidByPersonId ?? ""} onChange={(event) => {
+                  const person = peopleRecords.find((item) => item.id === event.target.value);
+                  setForm((current) => ({ ...current, paidByPersonId: person?.id, paidByPersonName: person?.fullName ?? "", paidBy: person?.fullName ?? "" }));
+                }}>
+                  <option value="">Select person</option>
+                  {peopleRecords.map((person) => (
+                    <option key={person.id} value={person.id}>{person.fullName}</option>
                   ))}
                 </select>
                 {errors.paidBy ? <p className="mt-1 text-xs text-red-700">{errors.paidBy}</p> : null}
@@ -143,27 +158,36 @@ export function ExpenseFormModal({ expense, expenseIdPreview, events, people, co
               </label>
               <label>
                 <FieldLabel>Event / activity</FieldLabel>
-                <select className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.event} onChange={(event) => update("event", event.target.value)}>
-                  {["General Operations", ...events].map((eventName) => (
-                    <option key={eventName} value={eventName}>{eventName}</option>
+                <select className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.linkedEventId ?? ""} onChange={(event) => {
+                  const linkedEvent = eventRecords.find((item) => item.id === event.target.value);
+                  setForm((current) => ({ ...current, linkedEventId: linkedEvent?.id, linkedEventName: linkedEvent?.eventName ?? "", eventRecordId: linkedEvent?.id, event: linkedEvent?.eventName ?? "General Operations" }));
+                }}>
+                  <option value="">General Operations / no event</option>
+                  {eventRecords.map((eventRecord) => (
+                    <option key={eventRecord.id} value={eventRecord.id}>{eventRecord.eventName}</option>
                   ))}
                 </select>
               </label>
               <label>
-                <FieldLabel>Cost center</FieldLabel>
+                <FieldLabel required>Cost center</FieldLabel>
                 <select
                   className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink"
-                  value={form.costCenterId ?? ""}
+                  value={form.costCenterId ?? (form.costCenter === "General Operations" ? "GENERAL" : "")}
                   onChange={(event) => {
+                    if (event.target.value === "GENERAL") {
+                      setForm((current) => ({ ...current, costCenterId: undefined, costCenter: "General Operations" }));
+                      return;
+                    }
                     const costCenter = costCenters.find((item) => item.id === event.target.value);
-                    setForm((current) => ({ ...current, costCenterId: costCenter?.id, costCenter: costCenter?.name ?? "" }));
+                    setForm((current) => ({ ...current, costCenterId: costCenter?.id, costCenter: costCenter?.name ?? "General Operations" }));
                   }}
                 >
-                  <option value="">No cost center</option>
+                  <option value="GENERAL">General Operations</option>
                   {costCenters.map((costCenter) => (
                     <option key={costCenter.id} value={costCenter.id}>{costCenter.name}</option>
                   ))}
                 </select>
+                {errors.costCenter ? <p className="mt-1 text-xs text-red-700">{errors.costCenter}</p> : null}
               </label>
               <label>
                 <FieldLabel required>Category</FieldLabel>
@@ -178,6 +202,14 @@ export function ExpenseFormModal({ expense, expenseIdPreview, events, people, co
                 <input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.vendor} onChange={(event) => update("vendor", event.target.value)} />
               </label>
               <label className="md:col-span-2 xl:col-span-3">
+                <FieldLabel required>Expense Purpose</FieldLabel>
+                <input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" placeholder="Workshop lunch, referee transport, hotel accommodation..." value={form.expensePurpose ?? ""} onChange={(event) => {
+                  const value = event.target.value;
+                  setForm((current) => ({ ...current, expensePurpose: value, description: current.description || value }));
+                }} />
+                {errors.expensePurpose ? <p className="mt-1 text-xs text-red-700">{errors.expensePurpose}</p> : null}
+              </label>
+              <label className="md:col-span-2 xl:col-span-3">
                 <FieldLabel required>Description</FieldLabel>
                 <input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.description} onChange={(event) => update("description", event.target.value)} />
                 {errors.description ? <p className="mt-1 text-xs text-red-700">{errors.description}</p> : null}
@@ -190,7 +222,7 @@ export function ExpenseFormModal({ expense, expenseIdPreview, events, people, co
             <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <label>
                 <FieldLabel required>Amount</FieldLabel>
-                <input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" min="0" step="0.01" type="number" value={form.amount} onChange={(event) => update("amount", Number(event.target.value))} />
+                <input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" inputMode="decimal" value={form.amount} onChange={(event) => update("amount", parseMoneyInput(event.target.value))} />
                 {errors.amount ? <p className="mt-1 text-xs text-red-700">{errors.amount}</p> : null}
               </label>
               <label>
@@ -232,6 +264,14 @@ export function ExpenseFormModal({ expense, expenseIdPreview, events, people, co
                 </select>
               </label>
               <label>
+                <FieldLabel>Submitted date</FieldLabel>
+                <input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" type="date" value={form.submittedDate ?? ""} onChange={(event) => update("submittedDate", event.target.value)} />
+              </label>
+              <label>
+                <FieldLabel>Reviewed date</FieldLabel>
+                <input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" type="date" value={form.reviewedDate ?? ""} onChange={(event) => update("reviewedDate", event.target.value)} />
+              </label>
+              <label>
                 <FieldLabel>Approved by</FieldLabel>
                 <select className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.approvedBy ?? ""} onChange={(event) => update("approvedBy", event.target.value)}>
                   <option value="">Not approved</option>
@@ -263,7 +303,7 @@ export function ExpenseFormModal({ expense, expenseIdPreview, events, people, co
                     setForm((current) => ({
                       ...current,
                       reimbursable,
-                      reimbursementStatus: reimbursable ? "Pending" : "Not Reimbursable"
+                      reimbursementStatus: reimbursable ? "Outstanding" : "Not Reimbursable"
                     }));
                   }}
                   type="checkbox"

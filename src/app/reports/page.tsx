@@ -5,6 +5,7 @@ import { useFinanceData } from "@/components/finance-data-provider";
 import { PageHeader } from "@/components/page-header";
 import { sumOutstanding, totalExpensesByField } from "@/lib/finance-calculations";
 import { formatCurrency } from "@/lib/format";
+import { getLicenseRevenueSummary } from "@/lib/license-revenue";
 
 function ExportButtons() {
   return (
@@ -41,8 +42,18 @@ function requiredLicenseDocumentsComplete(application: ReturnType<typeof useFina
   return requiredDocuments.every((item) => item.received || item.verificationStatus === "Received" || item.verificationStatus === "Verified");
 }
 
+function coreDocumentStatus(application: ReturnType<typeof useFinanceData>["licenseApplications"][number]) {
+  const documents = application.documentChecklistSnapshot ?? [];
+  const idDocument = documents.find((item) => item.documentName.toLowerCase().includes("passport") || item.documentName.toLowerCase().includes("national id"));
+  const photoDocument = documents.find((item) => item.documentName.toLowerCase().includes("photograph") || item.documentName.toLowerCase().includes("photo"));
+  return {
+    idVerified: idDocument?.verificationStatus === "Verified",
+    photoVerified: photoDocument?.verificationStatus === "Verified"
+  };
+}
+
 export default function ReportsPage() {
-  const { expenses, reimbursements, receipts, revenues, auditLogs, licenseApplications, licenseFeeSchedule, licenseReceipts, generatedLicenses } = useFinanceData();
+  const { expenses, reimbursements, receipts, revenues, auditLogs, applicationImports, licenseApplications, licenseFeeSchedule, licenseReceipts, generatedLicenses } = useFinanceData();
   const expenseTotal = expenses.reduce((sum, expense) => sum + expense.amount, 0);
   const reimbursementTotal = reimbursements.reduce((sum, reimbursement) => sum + reimbursement.amount, 0);
   const revenueByCostCenter = revenues.reduce<Record<string, number>>((totals, revenue) => {
@@ -61,7 +72,7 @@ export default function ReportsPage() {
       (revenueByCostCenter[costCenter] ?? 0) - (expenseByCostCenter[costCenter] ?? 0)
     ])
   );
-  const liabilityByPerson = reimbursements.reduce<Record<string, number>>((totals, reimbursement) => {
+  const amountOwedByPerson = reimbursements.reduce<Record<string, number>>((totals, reimbursement) => {
     totals[reimbursement.personOwed] = (totals[reimbursement.personOwed] ?? 0) + reimbursement.outstandingBalance;
     return totals;
   }, {});
@@ -70,6 +81,33 @@ export default function ReportsPage() {
     "Converted receipts": receipts.filter((receipt) => receipt.status === "Converted to Expense").length,
     "Rejected receipts": receipts.filter((receipt) => receipt.status === "Rejected").length,
     "Pending review receipts": receipts.filter((receipt) => receipt.status === "New" || receipt.status === "Needs Review").length
+  };
+  const monthlyExpenseSummary = expenses.reduce<Record<string, number>>((totals, expense) => {
+    const key = expense.date.slice(0, 7) || "No month";
+    totals[key] = (totals[key] ?? 0) + expense.amount;
+    return totals;
+  }, {});
+  const reimbursementPayments = {
+    "Reimbursement payments recorded": reimbursements.filter((reimbursement) => Boolean(reimbursement.settlementDate || reimbursement.settlementReference || reimbursement.amountReimbursed > 0)).length,
+    "Amount reimbursed": reimbursements.reduce((sum, reimbursement) => sum + reimbursement.amountReimbursed, 0),
+    "Outstanding Balance": sumOutstanding(reimbursements)
+  };
+  const applicationImportLog = {
+    "Application imports uploaded": applicationImports.length,
+    "Awaiting mapping review": applicationImports.filter((item) => ["Uploaded", "Text Extracted", "Mapping Review"].includes(item.ocrStatus)).length,
+    "Ready to create application": applicationImports.filter((item) => item.ocrStatus === "Ready To Create Application").length,
+    "Converted to application": applicationImports.filter((item) => item.ocrStatus === "Converted To Application").length,
+    "Rejected imports": applicationImports.filter((item) => item.ocrStatus === "Rejected").length
+  };
+  const receiptImportLog = {
+    "Receipt OCR records": receipts.filter((receipt) => Boolean(receipt.ocrStatus)).length,
+    "Receipt imports awaiting mapping review": receipts.filter((receipt) => receipt.ocrStatus && ["Uploaded", "Text Extracted", "Mapping Review"].includes(receipt.ocrStatus)).length,
+    "Receipt imports ready to register": receipts.filter((receipt) => receipt.ocrStatus === "Ready To Convert Receipt").length,
+    "Receipt imports registered": receipts.filter((receipt) => receipt.ocrStatus === "Converted To Expense").length
+  };
+  const lowConfidenceReview = {
+    "Low-confidence application imports": applicationImports.filter((item) => item.confidenceLevel === "Low" || item.confidenceLevel === "Manual Review Required").length,
+    "Low-confidence receipt imports": receipts.filter((receipt) => receipt.confidenceLevel === "Low" || receipt.confidenceLevel === "Manual Review Required").length
   };
   const auditActivity = auditLogs.reduce<Record<string, number>>((totals, log) => {
     totals[log.action] = (totals[log.action] ?? 0) + 1;
@@ -115,6 +153,13 @@ export default function ReportsPage() {
   };
   const paymentVerificationReport = {
     "Payment submitted awaiting verification": licenseApplications.filter((application) => application.paymentStatus === "Payment Submitted" || application.reviewStatus === "Awaiting Payment Verification").length,
+    "Payment proof rejected": licenseApplications.filter((application) => application.paymentStatus === "Rejected").length,
+    "Pending Review - Payment Section": licenseApplications.filter((application) => application.reviewStatus === "Pending Review - Payment Section").length,
+    "Manually paid applications": licenseApplications.filter((application) => application.paymentConfirmationType === "Manually Paid").length,
+    "Cash paid applications": licenseApplications.filter((application) => application.paymentConfirmationType === "Cash Paid").length,
+    "Applications manually marked ready for chief review": licenseApplications.filter((application) => application.paymentConfirmationType === "Admin Ready Override" || Boolean(application.paymentReadyOverrideReason)).length,
+    "Applications blocked by unverified passport/ID": licenseApplications.filter((application) => !coreDocumentStatus(application).idVerified).length,
+    "Applications blocked by unverified photo": licenseApplications.filter((application) => !coreDocumentStatus(application).photoVerified).length,
     "Payment rejected": auditLogs.filter((log) => log.action === "Payment Rejected").length,
     "Payment waived": licenseApplications.filter((application) => application.paymentStatus === "Waived").length,
     "Combined officials applications": licenseApplications.filter((application) => (application.additionalOfficialCategories ?? []).length > 1).length,
@@ -155,6 +200,7 @@ export default function ReportsPage() {
     totals[application.licenseCategory] = (totals[application.licenseCategory] ?? 0) + application.amountPaid;
     return totals;
   }, {});
+  const licenseRevenue = getLicenseRevenueSummary(licenseApplications);
 
   return (
     <>
@@ -185,11 +231,37 @@ export default function ReportsPage() {
           ))}
         </div>
       </section>
+      <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
+        <h3 className="text-base font-semibold text-ink">License Income by Category</h3>
+        <p className="mt-3 text-3xl font-semibold text-ink">{formatCurrency(licenseRevenue.totalRevenue)}</p>
+        <p className="mt-1 text-sm text-steel">Total Revenue from License Applications</p>
+        <div className="mt-5 overflow-x-auto">
+          <table className="w-full min-w-[780px] text-left text-sm">
+            <thead className="bg-[#f1f1ee] text-xs uppercase tracking-[0.12em] text-steel">
+              <tr>{["License category", "Fee amount", "Paid application count", "Total income", "Calculation"].map((heading) => <th className="px-4 py-3 font-semibold" key={heading}>{heading}</th>)}</tr>
+            </thead>
+            <tbody className="divide-y divide-black/10">
+              {licenseRevenue.byCategory.map((row) => (
+                <tr key={row.category}>
+                  <td className="px-4 py-4 font-medium text-ink">{row.category}</td>
+                  <td className="px-4 py-4 text-steel">{formatCurrency(row.feeAmount)}</td>
+                  <td className="px-4 py-4 text-steel">{row.paidCount}</td>
+                  <td className="px-4 py-4 font-semibold text-ink">{formatCurrency(row.totalIncome)}</td>
+                  <td className="px-4 py-4 text-steel">{row.category} License Income = {formatCurrency(row.feeAmount)} x {row.paidCount} = {formatCurrency(row.totalIncome)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
       <div className="grid gap-4 xl:grid-cols-2">
         <SummaryPanel title="Cost Center P&L summary" totals={costCenterPnL} />
         <SummaryPanel title="Cost Center expense breakdown" totals={expenseByCostCenter} />
-        <SummaryPanel title="Reimbursement liability by person" totals={liabilityByPerson} />
+        <SummaryPanel title="Reimbursement amount owed by person" totals={amountOwedByPerson} />
         <SummaryPanel title="Outstanding reimbursements report" totals={{ "Outstanding reimbursements": sumOutstanding(reimbursements) }} />
+        <SummaryPanel title="Reimbursements Paid" totals={{ "Amount reimbursed": reimbursements.reduce((sum, reimbursement) => sum + reimbursement.amountReimbursed, 0) }} />
+        <SummaryPanel title="Reimbursement Payments" totals={reimbursementPayments} />
+        <SummaryPanel title="Monthly Expense Summary" totals={monthlyExpenseSummary} />
         <SummaryPanel title="Unreconciled expenses report" totals={{ "Unreconciled expenses": expenses.filter((expense) => !expense.reconciliationStatus || expense.reconciliationStatus === "Not Reconciled" || expense.reconciliationStatus === "In Review").reduce((sum, expense) => sum + expense.amount, 0) }} />
         <SummaryPanel title="Disputed expenses report" totals={{ "Disputed expenses": expenses.filter((expense) => expense.reconciliationStatus === "Disputed").reduce((sum, expense) => sum + expense.amount, 0) }} />
         <SummaryPanel title="Reconciled totals by cost center" totals={reconciledByCostCenter} />
@@ -204,7 +276,10 @@ export default function ReportsPage() {
           }}
         />
         <SummaryPanel title="Expenses pending review" totals={{ "Pending review": expenses.filter((expense) => expense.approvalStatus === "Pending Review" || expense.approvalStatus === "Submitted").reduce((sum, expense) => sum + expense.amount, 0) }} />
-        <SummaryPanel title="Receipts pending conversion" totals={{ "Receipt intake items": receipts.filter((receipt) => receipt.status === "New" || receipt.status === "Needs Review").length }} currency={false} />
+        <SummaryPanel title="Receipts pending registration" totals={{ "Receipt register items": receipts.filter((receipt) => receipt.status === "New" || receipt.status === "Needs Review").length }} currency={false} />
+        <SummaryPanel title="Application import log" totals={applicationImportLog} currency={false} />
+        <SummaryPanel title="Receipt import log" totals={receiptImportLog} currency={false} />
+        <SummaryPanel title="OCR low-confidence review" totals={lowConfidenceReview} currency={false} />
         <SummaryPanel title="License applications by category" totals={licenseByCategory} currency={false} />
         <SummaryPanel title="Applications by source" totals={licenseBySource} currency={false} />
         <SummaryPanel title="License application workflow" totals={licenseReports} currency={false} />

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { BarChart3, CalendarDays, CircleDollarSign, ClipboardList, CreditCard, Database, FileBarChart, FileText, HandCoins, History, IdCard, Inbox, LayoutDashboard, Menu, ReceiptText, ScrollText, Search, Stamp, Tags, Users } from "lucide-react";
+import { BarChart3, CalendarDays, CircleDollarSign, ClipboardList, CreditCard, Database, FileBarChart, FileText, HandCoins, History, IdCard, Inbox, LayoutDashboard, Menu, ReceiptText, ScanText, ScrollText, Search, Stamp, Tags, Users } from "lucide-react";
 import { useFinanceData } from "@/components/finance-data-provider";
 import { PageLoadingState } from "@/components/page-loading-state";
 import { useHasMounted } from "@/hooks/useHasMounted";
@@ -13,10 +13,11 @@ const navigation = [
   { href: "/people", label: "People", icon: Users },
   { href: "/events", label: "Events", icon: CalendarDays },
   { href: "/cost-centers", label: "Cost Centers", icon: Tags },
-  { href: "/receipt-intake", label: "Receipt Intake", icon: Inbox },
+  { href: "/receipt-intake", label: "Receipt Register", icon: Inbox },
   { href: "/expenses", label: "Expenses", icon: CircleDollarSign },
   { href: "/batch-entry", label: "Batch Entry", icon: ClipboardList },
   { href: "/application-intake", label: "Application Intake", icon: Inbox },
+  { href: "/application-import", label: "Application Import", icon: ScanText },
   { href: "/bulk-intake", label: "Bulk Intake", icon: ClipboardList },
   { href: "/license-applications", label: "License Applications", icon: IdCard },
   { href: "/license-application-form", label: "License Application Form", icon: ScrollText },

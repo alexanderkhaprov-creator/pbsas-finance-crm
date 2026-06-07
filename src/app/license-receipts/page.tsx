@@ -16,8 +16,9 @@ function printReceipt(receipt: LicenseReceipt, markDownloaded: (receipt: License
     ["LIN", receipt.lin],
     ["Invoice Number", receipt.invoiceNumber],
     ["License Category", receipt.categoryLabel],
-    ["Amount Received", `${receipt.currency} ${receipt.amountReceived}`],
+    ["Amount Received", formatCurrency(receipt.amountReceived, receipt.currency)],
     ["Payment Method", receipt.paymentMethod],
+    ["Payment Date", receipt.paymentDate],
     ["Payment Reference", receipt.paymentReference],
     ["Paid To", receipt.paidTo],
     ["Received By", receipt.receivedBy],
@@ -42,13 +43,14 @@ export default function LicenseReceiptsPage() {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1300px] text-left text-sm">
             <thead className="bg-[#f1f1ee] text-xs uppercase tracking-[0.12em] text-steel">
-              <tr>{["Receipt", "Date", "Applicant", "Application", "LIN", "Invoice", "Category", "Amount", "Method", "Paid To", "Status", "Actions"].map((heading) => <th className="px-4 py-3 font-semibold" key={heading}>{heading}</th>)}</tr>
+              <tr>{["Receipt", "Receipt Date", "Payment Date", "Applicant", "Application", "LIN", "Invoice", "Category", "Amount", "Method", "Paid To", "Status", "Actions"].map((heading) => <th className="px-4 py-3 font-semibold" key={heading}>{heading}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-black/10">
               {licenseReceipts.map((receipt) => (
                 <tr key={receipt.id}>
                   <td className="px-4 py-4 font-semibold text-ink">{receipt.id}</td>
                   <td className="px-4 py-4 text-steel">{formatDate(receipt.receiptDate)}</td>
+                  <td className="px-4 py-4 text-steel">{formatDate(receipt.paymentDate)}</td>
                   <td className="px-4 py-4 text-steel">{receipt.applicantName}</td>
                   <td className="px-4 py-4 text-steel">{receipt.applicationId}</td>
                   <td className="px-4 py-4 text-steel">{receipt.lin}</td>

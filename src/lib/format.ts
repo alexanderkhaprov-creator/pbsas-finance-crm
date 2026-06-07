@@ -1,10 +1,10 @@
+import { formatMoney } from "@/lib/money-utils";
+
 export function formatCurrency(amount: number, currency = "AED") {
-  return new Intl.NumberFormat("en-AE", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0
-  }).format(amount);
+  return formatMoney(amount, currency);
 }
+
+export { formatMoney };
 
 export function formatDate(date: string) {
   if (!date) {

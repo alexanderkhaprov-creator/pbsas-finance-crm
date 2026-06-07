@@ -1,4 +1,4 @@
-import type { AppSettings, AuditLog, CostCenter, Event, Expense, FinancialPeriod, GeneratedLicense, LicenseApplication, LicenseDocumentRequirement, LicenseFeeScheduleItem, LicenseIntake, LicenseReceipt, PaymentSettings, Person, ReceiptIntake, Reimbursement, Revenue, StampSettings, SupportingDocument } from "@/types";
+import type { AppSettings, ApplicationImport, AuditLog, CostCenter, Event, Expense, FinancialPeriod, GeneratedLicense, LicenseApplication, LicenseDocumentRequirement, LicenseFeeScheduleItem, LicenseIntake, LicenseReceipt, PaymentSettings, Person, ReceiptIntake, Reimbursement, Revenue, StampSettings, SupportingDocument } from "@/types";
 
 export const people: Person[] = [
   {
@@ -284,6 +284,8 @@ export const licenseApplications: LicenseApplication[] = [
   }
 ];
 
+export const applicationImports: ApplicationImport[] = [];
+
 export const licenseIntake: LicenseIntake[] = [
   {
     id: "INT-000001",
@@ -377,19 +379,19 @@ export const licenseDocumentRequirements: LicenseDocumentRequirement[] = [
   requirement(1, "Copy of Passport OR National ID document", allLicenseCategories, true, "Identification group requirement."),
   requirement(2, "Passport-Sized Photograph", allLicenseCategories, true),
   requirement(3, "Current Medical Examination", allLicenseCategories, false),
-  requirement(4, "Brain Imaging / MRI / CT Scan (if applicable)", boxerOnly, true),
-  requirement(5, "HIV Test Results", boxerOnly, true),
-  requirement(6, "Hepatitis B Test Results", boxerOnly, true),
-  requirement(7, "Hepatitis C Test Results", boxerOnly, true),
-  requirement(8, "ECG / EKG Results", boxerOnly, true),
-  requirement(9, "Proof of Insurance", ["Professional Boxer", "Ringside Physician / Doctor"], true),
-  requirement(10, "Professional Record Documentation", boxerOnly, true),
+  requirement(4, "Brain Imaging / MRI / CT Scan (if applicable)", boxerOnly, false),
+  requirement(5, "HIV Test Results", boxerOnly, false),
+  requirement(6, "Hepatitis B Test Results", boxerOnly, false),
+  requirement(7, "Hepatitis C Test Results", boxerOnly, false),
+  requirement(8, "ECG / EKG Results", boxerOnly, false),
+  requirement(9, "Proof of Insurance", boxerOnly, false),
+  requirement(10, "Professional Record Documentation", boxerOnly, false),
   requirement(11, "Existing License Copies", allLicenseCategories, false, "Required only if applicant currently or previously held a boxing license from another commission."),
   requirement(12, "Coaching Certifications", coachOnly, true),
   requirement(13, "Medical License (Doctors)", doctors, true),
   requirement(14, "CPR / ACLS Certifications (Doctors)", doctors, true),
   requirement(15, "Police Clearance Certificate", [...officials, "Ringside Physician / Doctor", "Matchmaker", "Manager", "Promoter Representative"], true),
-  requirement(16, "Anti-Doping Compliance Agreement", boxerOnly, true),
+  requirement(16, "Anti-Doping Compliance Agreement", boxerOnly, false),
   requirement(17, "Other Supporting Documents", allLicenseCategories, false),
   requirement(18, "International Certifications or Appointments if applicable", officials, true),
   requirement(19, "Company authorization letter", promoterOnly, false),
@@ -399,7 +401,8 @@ export const licenseDocumentRequirements: LicenseDocumentRequirement[] = [
   requirement(23, "Police Clearance Certificate", coachOnly, false),
   requirement(24, "ECG / EKG Results", officials, false),
   requirement(25, "Anti-Doping Compliance Agreement", officials, false),
-  requirement(26, "Existing License Copies", ["Professional Boxer", "Cutman"], false)
+  requirement(26, "Existing License Copies", ["Professional Boxer", "Cutman"], false),
+  requirement(27, "Proof of Insurance", ["Ringside Physician / Doctor"], true)
 ];
 
 export const paymentSettings: PaymentSettings = {

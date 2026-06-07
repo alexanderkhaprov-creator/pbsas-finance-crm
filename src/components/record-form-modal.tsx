@@ -72,7 +72,7 @@ export function RecordFormModal<T extends { id: string }>({
             return (
               <label className="text-sm font-medium text-steel" key={String(field.key)}>
                 {field.label}
-                <input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" type={field.type ?? "text"} value={value} onChange={(event) => setValue(field.key, event.target.value)} />
+                <input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" inputMode={field.type === "number" ? "decimal" : undefined} type={field.type === "number" ? "text" : field.type ?? "text"} value={value} onChange={(event) => setValue(field.key, event.target.value)} />
               </label>
             );
           })}

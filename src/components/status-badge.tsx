@@ -4,6 +4,7 @@ export function StatusBadge({ value }: { value: string }) {
     Submitted: "border-amber-200 bg-amber-50 text-amber-800",
     "Pending Review": "border-amber-200 bg-amber-50 text-amber-800",
     Pending: "border-amber-200 bg-amber-50 text-amber-800",
+    Outstanding: "border-amber-200 bg-amber-50 text-amber-800",
     Approved: "border-emerald-200 bg-emerald-50 text-emerald-700",
     "Approved for Reimbursement": "border-emerald-200 bg-emerald-50 text-emerald-700",
     Rejected: "border-red-200 bg-red-50 text-red-700",
@@ -35,9 +36,13 @@ export function StatusBadge({ value }: { value: string }) {
     New: "border-blue-200 bg-blue-50 text-blue-700",
     "Needs Review": "border-amber-200 bg-amber-50 text-amber-800",
     "Converted to Expense": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Receipt Uploaded": "border-blue-200 bg-blue-50 text-blue-700",
+    "Expense Registered": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Reimbursement Paid": "border-blue-200 bg-blue-50 text-blue-700",
     "Pending Documents": "border-amber-200 bg-amber-50 text-amber-800",
     "Pending Payment": "border-amber-200 bg-amber-50 text-amber-800",
     "Awaiting Payment Verification": "border-amber-200 bg-amber-50 text-amber-800",
+    "Pending Review - Payment Section": "border-amber-200 bg-amber-50 text-amber-800",
     "Pending Chief Review": "border-amber-200 bg-amber-50 text-amber-800",
     "Approved by Chief": "border-emerald-200 bg-emerald-50 text-emerald-700",
     "Ready for Stamp": "border-blue-200 bg-blue-50 text-blue-700",
@@ -96,6 +101,13 @@ export function StatusBadge({ value }: { value: string }) {
     "Internal UAEAC section updated": "border-blue-200 bg-blue-50 text-blue-700",
     "Payment Instructions Viewed": "border-blue-200 bg-blue-50 text-blue-700",
     "Payment Rejected": "border-red-200 bg-red-50 text-red-700",
+    "Payment Proof Rejected": "border-red-200 bg-red-50 text-red-700",
+    "Payment Section Reviewed": "border-blue-200 bg-blue-50 text-blue-700",
+    "Payment Marked Cash Paid": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Payment Marked Manually Paid": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Application Manually Marked Ready For Chief Review": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Core Document Verified": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "License Issue Blocked By Missing Core Document": "border-red-200 bg-red-50 text-red-700",
     "Payment Waived": "border-zinc-300 bg-zinc-100 text-zinc-700",
     "Document Uploaded": "border-blue-200 bg-blue-50 text-blue-700",
     "Document Marked Received": "border-blue-200 bg-blue-50 text-blue-700",
@@ -112,9 +124,42 @@ export function StatusBadge({ value }: { value: string }) {
     Previewed: "border-blue-200 bg-blue-50 text-blue-700",
     Printed: "border-emerald-200 bg-emerald-50 text-emerald-700",
     "Existing License Uploaded": "border-blue-200 bg-blue-50 text-blue-700",
-    "Returning Applicant Identified": "border-amber-200 bg-amber-50 text-amber-800"
+    "Returning Applicant Identified": "border-amber-200 bg-amber-50 text-amber-800",
+    "Declaration Accepted": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    Uploaded: "border-blue-200 bg-blue-50 text-blue-700",
+    "Text Extracted": "border-blue-200 bg-blue-50 text-blue-700",
+    "Mapping Review": "border-amber-200 bg-amber-50 text-amber-800",
+    "Ready To Create Application": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Ready To Convert Receipt": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Converted To Application": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Converted To Expense": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    High: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    Medium: "border-amber-200 bg-amber-50 text-amber-800",
+    Low: "border-red-200 bg-red-50 text-red-700",
+    "Manual Review Required": "border-red-200 bg-red-50 text-red-700",
+    "Application Import Created": "border-blue-200 bg-blue-50 text-blue-700",
+    "Application Created From OCR Import": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Expense Created From Receipt OCR": "border-emerald-200 bg-emerald-50 text-emerald-700"
+    ,"Expense Created": "border-blue-200 bg-blue-50 text-blue-700",
+    "Expense Submitted": "border-amber-200 bg-amber-50 text-amber-800",
+    "Expense Approved": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Expense Rejected": "border-red-200 bg-red-50 text-red-700",
+    "Expense Closed": "border-zinc-300 bg-zinc-100 text-zinc-700",
+    "Reimbursement Created": "border-blue-200 bg-blue-50 text-blue-700",
+    "Reimbursement Approved": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Reimbursement Settled": "border-blue-200 bg-blue-50 text-blue-700",
+    "Reimbursement Proof Uploaded": "border-blue-200 bg-blue-50 text-blue-700",
+    "Reimbursement Marked Paid": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Faulty Test Expense Removed": "border-red-200 bg-red-50 text-red-700",
+    "Treasury Settlement Recorded": "border-blue-200 bg-blue-50 text-blue-700"
   };
   const tone = tones[value] ?? "border-zinc-200 bg-zinc-50 text-zinc-700";
+  const labels: Record<string, string> = {
+    "Converted to Expense": "Expense Registered",
+    "Converted To Expense": "Expense Registered",
+    "Ready To Convert Receipt": "Ready To Register Receipt",
+    "Treasury Settlement Recorded": "Reimbursement Payment Recorded"
+  };
 
-  return <span className={`inline-flex rounded border px-2 py-1 text-xs font-medium ${tone}`}>{value}</span>;
+  return <span className={`inline-flex rounded border px-2 py-1 text-xs font-medium ${tone}`}>{labels[value] ?? value}</span>;
 }

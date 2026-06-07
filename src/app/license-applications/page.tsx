@@ -7,8 +7,9 @@ import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { getNextSequentialId } from "@/lib/id-utils";
+import { parseMoneyInput } from "@/lib/money-utils";
 import { currencies, licenseApplicationOrigins, licenseApplicationSources, licenseCategories, licenseInvoiceStatuses, licensePaidToOptions, licensePaymentMethods, licensePaymentStatuses, licenseReviewStatuses, licenseStatuses, stampStatuses } from "@/lib/options";
-import type { AuditAction, LicenseApplication, LicenseDocumentChecklistItem } from "@/types";
+import type { AuditAction, CoachCertification, LicenseApplication, LicenseDocumentChecklistItem, NotableFighter } from "@/types";
 
 const LIN_PREFIX = "UAEAC2026";
 
@@ -107,7 +108,77 @@ function requiredDocumentsComplete(application: LicenseApplication) {
   return requiredDocuments.every((item) => item.verificationStatus === "Verified");
 }
 
+function coreDocumentStatus(application: LicenseApplication) {
+  const documents = application.documentChecklistSnapshot ?? [];
+  const idDocument = documents.find((item) => item.documentName.toLowerCase().includes("passport") || item.documentName.toLowerCase().includes("national id"));
+  const photoDocument = documents.find((item) => item.documentName.toLowerCase().includes("photograph") || item.documentName.toLowerCase().includes("photo"));
+  return {
+    idDocument,
+    photoDocument,
+    idVerified: idDocument?.verificationStatus === "Verified",
+    photoVerified: photoDocument?.verificationStatus === "Verified"
+  };
+}
+
+function coreDocumentsVerified(application: LicenseApplication) {
+  const core = coreDocumentStatus(application);
+  return core.idVerified && core.photoVerified;
+}
+
+function paymentConfirmed(application: LicenseApplication) {
+  return paymentCleared(application) || Boolean(application.paymentConfirmationType === "Cash Paid" || application.paymentConfirmationType === "Manually Paid" || application.paymentConfirmationType === "Admin Ready Override");
+}
+
+function licenseIssueBlockers(application: LicenseApplication) {
+  const core = coreDocumentStatus(application);
+  return [
+    ...(!core.idVerified ? ["Passport or National ID document must be verified before license issuance."] : []),
+    ...(!core.photoVerified ? ["Passport-sized photograph must be verified before license issuance."] : []),
+    ...(!paymentConfirmed(application) ? ["Payment must be verified, waived, or manually confirmed before license issuance."] : []),
+    ...(!application.chiefReviewer.trim() || !application.approvalDate ? ["Chief approval information is incomplete."] : [])
+  ];
+}
+
 const chiefReviewStatuses: LicenseApplication["reviewStatus"][] = ["Under Chief Review", "Pending Chief Review", "Approved by Chief", "Ready for Stamp", "License Issued"];
+
+function AdminCoachCertifications({ rows, onChange }: { rows: CoachCertification[]; onChange: (rows: CoachCertification[]) => void }) {
+  const safeRows = rows.length ? rows : [{ certificationName: "", issuingOrganization: "", yearIssued: "", notes: "" }];
+  return (
+    <div className="rounded border border-black/10 bg-[#f7f7f5] p-4 md:col-span-2 xl:col-span-3">
+      <p className="text-sm font-semibold text-ink">Professional Certifications Held</p>
+      <div className="mt-3 space-y-2">
+        {safeRows.map((row, index) => (
+          <div className="grid gap-2 md:grid-cols-4" key={index}>
+            <input className="rounded border border-black/10 px-3 py-2 text-sm text-ink" placeholder="Certification name" value={row.certificationName} onChange={(event) => onChange(safeRows.map((item, itemIndex) => itemIndex === index ? { ...item, certificationName: event.target.value } : item))} />
+            <input className="rounded border border-black/10 px-3 py-2 text-sm text-ink" placeholder="Issuing organization" value={row.issuingOrganization} onChange={(event) => onChange(safeRows.map((item, itemIndex) => itemIndex === index ? { ...item, issuingOrganization: event.target.value } : item))} />
+            <input className="rounded border border-black/10 px-3 py-2 text-sm text-ink" placeholder="Year issued" value={row.yearIssued} onChange={(event) => onChange(safeRows.map((item, itemIndex) => itemIndex === index ? { ...item, yearIssued: event.target.value.replace(/\D/g, "").slice(0, 4) } : item))} />
+            <div className="flex gap-2"><input className="min-w-0 flex-1 rounded border border-black/10 px-3 py-2 text-sm text-ink" placeholder="Notes" value={row.notes} onChange={(event) => onChange(safeRows.map((item, itemIndex) => itemIndex === index ? { ...item, notes: event.target.value } : item))} /><button className="rounded border border-red-200 px-2 text-xs font-semibold text-red-700" type="button" onClick={() => onChange(safeRows.filter((_, itemIndex) => itemIndex !== index))}>Remove</button></div>
+          </div>
+        ))}
+      </div>
+      <button className="mt-3 rounded border border-black/10 px-3 py-2 text-xs font-semibold text-steel" type="button" onClick={() => onChange([...safeRows, { certificationName: "", issuingOrganization: "", yearIssued: "", notes: "" }])}>Add certification</button>
+    </div>
+  );
+}
+
+function AdminNotableFighters({ rows, onChange }: { rows: NotableFighter[]; onChange: (rows: NotableFighter[]) => void }) {
+  const safeRows = rows.length ? rows : [{ fighterName: "", levelRecordNotes: "" }];
+  return (
+    <div className="rounded border border-black/10 bg-[#f7f7f5] p-4 md:col-span-2 xl:col-span-3">
+      <p className="text-sm font-semibold text-ink">Notable Fighters Trained</p>
+      <div className="mt-3 space-y-2">
+        {safeRows.map((row, index) => (
+          <div className="grid gap-2 md:grid-cols-[1fr_2fr_auto]" key={index}>
+            <input className="rounded border border-black/10 px-3 py-2 text-sm text-ink" placeholder="Fighter name" value={row.fighterName} onChange={(event) => onChange(safeRows.map((item, itemIndex) => itemIndex === index ? { ...item, fighterName: event.target.value } : item))} />
+            <input className="rounded border border-black/10 px-3 py-2 text-sm text-ink" placeholder="Level / record / notes" value={row.levelRecordNotes} onChange={(event) => onChange(safeRows.map((item, itemIndex) => itemIndex === index ? { ...item, levelRecordNotes: event.target.value } : item))} />
+            <button className="rounded border border-red-200 px-2 text-xs font-semibold text-red-700" type="button" onClick={() => onChange(safeRows.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
+          </div>
+        ))}
+      </div>
+      <button className="mt-3 rounded border border-black/10 px-3 py-2 text-xs font-semibold text-steel" type="button" onClick={() => onChange([...safeRows, { fighterName: "", levelRecordNotes: "" }])}>Add fighter</button>
+    </div>
+  );
+}
 
 function ApplicationModal({
   application,
@@ -145,9 +216,9 @@ function ApplicationModal({
     }
     await onSubmit({
       ...form,
-      amountDue: Number(form.amountDue),
-      amountPaid: Number(form.amountPaid),
-      invoiceAmount: Number(form.invoiceAmount),
+      amountDue: typeof form.amountDue === "number" ? form.amountDue : parseMoneyInput(String(form.amountDue)),
+      amountPaid: typeof form.amountPaid === "number" ? form.amountPaid : parseMoneyInput(String(form.amountPaid)),
+      invoiceAmount: typeof form.invoiceAmount === "number" ? form.invoiceAmount : parseMoneyInput(String(form.invoiceAmount)),
       supportingDocumentFileNames: form.supportingDocumentFileNames.filter(Boolean)
     });
   }
@@ -170,12 +241,18 @@ function ApplicationModal({
           <label className="text-sm font-medium text-steel md:col-span-2">Address<input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.address} onChange={(event) => setValue("address", event.target.value)} /></label>
           <label className="text-sm font-medium text-steel">License category<select className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.licenseCategory} onChange={(event) => setValue("licenseCategory", event.target.value as LicenseApplication["licenseCategory"])}>{licenseCategories.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           {form.licenseCategory === "Other" ? <label className="text-sm font-medium text-steel md:col-span-2">Other category description<input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.otherCategoryDescription} onChange={(event) => setValue("otherCategoryDescription", event.target.value)} /></label> : null}
+          {form.licenseCategory === "Coach / Second" ? (
+            <>
+              <AdminCoachCertifications rows={form.coachCertifications ?? []} onChange={(rows) => setValue("coachCertifications", rows)} />
+              <AdminNotableFighters rows={form.notableFighters ?? []} onChange={(rows) => setValue("notableFighters", rows)} />
+            </>
+          ) : null}
           <label className="text-sm font-medium text-steel">Application source<select className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.applicationSource} onChange={(event) => setValue("applicationSource", event.target.value as LicenseApplication["applicationSource"])}>{licenseApplicationSources.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <label className="text-sm font-medium text-steel">Application origin<select className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.applicationOrigin} onChange={(event) => setValue("applicationOrigin", event.target.value as LicenseApplication["applicationOrigin"])}>{licenseApplicationOrigins.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <label className="text-sm font-medium text-steel">Application scan filename<input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.applicationScanFileName} onChange={(event) => setValue("applicationScanFileName", event.target.value)} /></label>
           <label className="text-sm font-medium text-steel">Supporting documents<input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.supportingDocumentFileNames.join(", ")} onChange={(event) => setValue("supportingDocumentFileNames", event.target.value.split(",").map((item) => item.trim()))} /></label>
-          <label className="text-sm font-medium text-steel">Amount due<input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" type="number" value={form.amountDue} onChange={(event) => setValue("amountDue", Number(event.target.value))} /></label>
-          <label className="text-sm font-medium text-steel">Amount paid<input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" type="number" value={form.amountPaid} onChange={(event) => setValue("amountPaid", Number(event.target.value))} /></label>
+          <label className="text-sm font-medium text-steel">Amount due<input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" inputMode="decimal" value={form.amountDue} onChange={(event) => setValue("amountDue", parseMoneyInput(event.target.value))} /></label>
+          <label className="text-sm font-medium text-steel">Amount paid<input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" inputMode="decimal" value={form.amountPaid} onChange={(event) => setValue("amountPaid", parseMoneyInput(event.target.value))} /></label>
           <label className="text-sm font-medium text-steel">Currency<select className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.currency} onChange={(event) => setValue("currency", event.target.value as LicenseApplication["currency"])}>{currencies.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <label className="text-sm font-medium text-steel">Payment status<select className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.paymentStatus} onChange={(event) => setValue("paymentStatus", event.target.value as LicenseApplication["paymentStatus"])}>{licensePaymentStatuses.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <label className="text-sm font-medium text-steel">Payment method<select className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.paymentMethod} onChange={(event) => setValue("paymentMethod", event.target.value as LicenseApplication["paymentMethod"])}>{licensePaymentMethods.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
@@ -191,7 +268,7 @@ function ApplicationModal({
           <label className="text-sm font-medium text-steel">License status<select className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.licenseStatus} onChange={(event) => setValue("licenseStatus", event.target.value as LicenseApplication["licenseStatus"])}>{licenseStatuses.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <label className="text-sm font-medium text-steel">Invoice status<select className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.invoiceStatus} onChange={(event) => setValue("invoiceStatus", event.target.value as LicenseApplication["invoiceStatus"])}>{licenseInvoiceStatuses.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <label className="text-sm font-medium text-steel">Invoice number<input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.invoiceNumber} onChange={(event) => setValue("invoiceNumber", event.target.value)} /></label>
-          <label className="text-sm font-medium text-steel">Invoice amount<input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" type="number" value={form.invoiceAmount} onChange={(event) => setValue("invoiceAmount", Number(event.target.value))} /></label>
+          <label className="text-sm font-medium text-steel">Invoice amount<input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" inputMode="decimal" value={form.invoiceAmount} onChange={(event) => setValue("invoiceAmount", parseMoneyInput(event.target.value))} /></label>
           <label className="text-sm font-medium text-steel md:col-span-3">Internal notes<textarea className="mt-1 min-h-24 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.internalNotes} onChange={(event) => setValue("internalNotes", event.target.value)} /></label>
           <label className="text-sm font-medium text-steel md:col-span-3">Payment notes<textarea className="mt-1 min-h-20 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.paymentNotes} onChange={(event) => setValue("paymentNotes", event.target.value)} /></label>
           <label className="text-sm font-medium text-steel md:col-span-3">Rejection reason<textarea className="mt-1 min-h-20 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.rejectionReason} onChange={(event) => setValue("rejectionReason", event.target.value)} /></label>
@@ -234,16 +311,19 @@ function ApplicationModal({
 
 function ReviewModal({
   application,
+  stampAvailable,
   onClose,
   onSubmit
 }: {
   application: LicenseApplication;
+  stampAvailable: boolean;
   onClose: () => void;
   onSubmit: (application: LicenseApplication, auditAction?: AuditAction) => Promise<void>;
 }) {
   const [form, setForm] = useState(application);
   const documentsVerified = requiredDocumentsComplete(form);
   const canChief = paymentCleared(form) && documentsVerified;
+  const core = coreDocumentStatus(form);
 
   function updateDocument(requirementId: string, verificationStatus: LicenseDocumentChecklistItem["verificationStatus"]) {
     setForm((current) => ({
@@ -282,9 +362,10 @@ function ReviewModal({
     await onSubmit({ ...form, reviewStatus: "Eligible For Chief Review", licenseStatus: "Awaiting Review" }, "Chief review started");
   }
 
-  async function approveOrIssue() {
-    if (!canChief) {
-      window.alert("Application cannot proceed to Chief Review until payment is verified or waived and required documents are complete.");
+  async function approveAwaitingStamp() {
+    const blockers = licenseIssueBlockers(form);
+    if (blockers.length) {
+      window.alert(blockers.join("\n"));
       return;
     }
     if (!form.chiefReviewer.trim() || !form.approvalDate) {
@@ -298,6 +379,30 @@ function ReviewModal({
       stampStatus: form.stampStatus === "Stamped" ? "Stamped" : "Awaiting Stamp",
       completionChecklist: { ...form.completionChecklist, chiefReviewComplete: true }
     }, "Chief approval granted");
+  }
+
+  async function issueLicense() {
+    if (!stampAvailable) {
+      window.alert("Stamp is not available. Use Approve Awaiting Stamp.");
+      return;
+    }
+    const blockers = licenseIssueBlockers(form);
+    if (blockers.length) {
+      window.alert(blockers.join("\n"));
+      return;
+    }
+    if (!form.chiefReviewer.trim() || !form.approvalDate) {
+      window.alert("Chief reviewer and approval date are required.");
+      return;
+    }
+    await onSubmit({
+      ...form,
+      reviewStatus: "License Issued",
+      licenseStatus: "Issued",
+      stampStatus: "Stamped",
+      stampDate: form.stampDate || form.approvalDate,
+      completionChecklist: { ...form.completionChecklist, chiefReviewComplete: true, stampComplete: true }
+    }, "License issued");
   }
 
   return (
@@ -317,12 +422,23 @@ function ReviewModal({
               <Info label="LIN" value={form.licenseIssueNumber} />
               <Info label="Invoice Status" value={form.invoiceStatus} />
               <Info label="Payment Status" value={form.paymentStatus} />
-              <Info label="Receipt" value={form.receiptNumber || "Not generated"} />
+              <Info label="Receipt Status" value={form.receiptNumber ? `Generated: ${form.receiptNumber}` : "Not generated"} />
+              <Info label="Required Documents" value={documentsVerified ? "Verified" : "Not fully verified"} />
               <Info label="License Status" value={form.licenseStatus} />
             </dl>
             {!canChief ? <div className="mt-4 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Application cannot proceed to Chief Review until payment is verified or waived and required documents are complete.</div> : null}
           </section>
           <section className="rounded border border-black/10 p-4">
+            <h4 className="font-semibold text-ink">Core Documents Required For License Issue</h4>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              {[core.idDocument, core.photoDocument].map((item, index) => (
+                <div className="rounded border border-black/10 bg-[#f7f7f5] p-3" key={item?.requirementId ?? index}>
+                  <p className="text-sm font-semibold text-ink">{item?.documentName ?? (index === 0 ? "Passport Copy OR National ID Document" : "Passport-Sized Photograph")}</p>
+                  <p className="mt-1 text-xs text-steel">{item?.fileName || "No file uploaded"}</p>
+                  <div className="mt-2"><StatusBadge value={item?.verificationStatus ?? "Not Received"} /></div>
+                </div>
+              ))}
+            </div>
             <h4 className="font-semibold text-ink">Required Document Checklist</h4>
             <div className="mt-3 space-y-3">
               {(form.documentChecklistSnapshot ?? []).map((item) => (
@@ -345,7 +461,7 @@ function ReviewModal({
               <label className="text-sm font-medium text-steel">Chief reviewer<input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.chiefReviewer} onChange={(event) => setForm((current) => ({ ...current, chiefReviewer: event.target.value }))} /></label>
               <label className="text-sm font-medium text-steel">Approval date<input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" type="date" value={form.approvalDate} onChange={(event) => setForm((current) => ({ ...current, approvalDate: event.target.value }))} /></label>
               <label className="text-sm font-medium text-steel">Reviewed by<input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.reviewedBy} onChange={(event) => setForm((current) => ({ ...current, reviewedBy: event.target.value }))} /></label>
-              <label className="text-sm font-medium text-steel md:col-span-3">Internal comments<textarea className="mt-1 min-h-24 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.internalNotes} onChange={(event) => setForm((current) => ({ ...current, internalNotes: event.target.value }))} /></label>
+              <label className="text-sm font-medium text-steel md:col-span-3">Chief review notes / Internal comments<textarea className="mt-1 min-h-24 w-full rounded border border-black/10 px-3 py-2 text-ink" value={form.internalNotes} onChange={(event) => setForm((current) => ({ ...current, internalNotes: event.target.value }))} /></label>
             </div>
           </section>
         </div>
@@ -354,7 +470,8 @@ function ReviewModal({
           <button className="rounded border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100" onClick={() => void requestMoreDocuments()}>Request More Documents</button>
           <button className="rounded border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100" onClick={() => void rejectApplication()}>Reject Application</button>
           <button className="rounded border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100" onClick={() => void markEligible()}>Mark Eligible For Chief Review</button>
-          <button className="rounded bg-gold px-4 py-2 text-sm font-semibold text-ink hover:bg-[#d7b445]" onClick={() => void approveOrIssue()}>Approve Application</button>
+          <button className="rounded bg-gold px-4 py-2 text-sm font-semibold text-ink hover:bg-[#d7b445]" onClick={() => void approveAwaitingStamp()}>Approve Awaiting Stamp</button>
+          <button className="rounded bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-black disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-600" disabled={!stampAvailable} onClick={() => void issueLicense()}>Issue License if stamp is available</button>
         </div>
       </div>
     </div>
@@ -365,8 +482,182 @@ function Info({ label, value }: { label: string; value: string }) {
   return <div className="flex justify-between gap-3"><dt className="font-medium text-steel">{label}</dt><dd className="text-right font-semibold text-ink">{value || "Not set"}</dd></div>;
 }
 
+function PaymentSectionModal({
+  application,
+  auditLogs,
+  onClose,
+  onSubmit
+}: {
+  application: LicenseApplication;
+  auditLogs: ReturnType<typeof useFinanceData>["auditLogs"];
+  onClose: () => void;
+  onSubmit: (application: LicenseApplication, auditAction: AuditAction) => Promise<void>;
+}) {
+  const paymentAudit = auditLogs.filter((log) => log.module === "License Applications" && log.recordId === application.id && log.action.toLowerCase().includes("payment"));
+  const documentsComplete = requiredDocumentsComplete(application);
+  const coreComplete = coreDocumentsVerified(application);
+
+  function basePaymentPatch(notes: string) {
+    return `${application.paymentNotes ? `${application.paymentNotes}\n` : ""}${notes}`;
+  }
+
+  async function rejectPaymentProof() {
+    const reason = window.prompt("Payment rejection reason is required.");
+    if (!reason?.trim()) return;
+    const rejectedBy = window.prompt("Rejected by")?.trim();
+    if (!rejectedBy) return;
+    await onSubmit({
+      ...application,
+      paymentStatus: "Rejected",
+      reviewStatus: "Pending Review - Payment Section",
+      licenseStatus: "Awaiting Payment",
+      paymentRejectionReason: reason.trim(),
+      paymentRejectedBy: rejectedBy,
+      paymentRejectionDate: new Date().toISOString().slice(0, 10),
+      completionChecklist: { ...application.completionChecklist, paymentReceived: false },
+      paymentNotes: basePaymentPatch(`Payment proof rejected by ${rejectedBy}: ${reason.trim()}`)
+    }, "Payment Proof Rejected");
+  }
+
+  async function markCashPaid() {
+    const amount = parseMoneyInput(window.prompt("Amount paid") ?? "");
+    const receivedBy = window.prompt("Received by")?.trim();
+    const paymentDate = window.prompt("Payment date", new Date().toISOString().slice(0, 10))?.trim();
+    const notes = window.prompt("Notes")?.trim();
+    if (!amount || !receivedBy || !paymentDate || !notes) return;
+    await onSubmit({
+      ...application,
+      amountPaid: amount,
+      totalFeesPaid: amount,
+      paymentMethod: "Cash",
+      paymentStatus: "Paid",
+      invoiceStatus: "Paid",
+      paymentDate,
+      paymentConfirmedBy: receivedBy,
+      paymentConfirmationType: "Cash Paid",
+      reviewStatus: documentsComplete ? "Eligible For Chief Review" : "Pending Documents",
+      licenseStatus: documentsComplete ? "Awaiting Review" : "Awaiting Payment",
+      completionChecklist: { ...application.completionChecklist, paymentReceived: true },
+      paymentNotes: basePaymentPatch(`Cash payment marked paid by ${receivedBy}: ${notes}`)
+    }, "Payment Marked Cash Paid");
+  }
+
+  async function markManuallyPaid() {
+    const amount = parseMoneyInput(window.prompt("Amount paid") ?? "");
+    const method = window.prompt("Payment method", application.paymentMethod)?.trim() as LicenseApplication["paymentMethod"] | undefined;
+    const confirmedBy = window.prompt("Received / confirmed by")?.trim();
+    const paymentDate = window.prompt("Payment date", new Date().toISOString().slice(0, 10))?.trim();
+    const notes = window.prompt("Notes")?.trim();
+    if (!amount || !method || !confirmedBy || !paymentDate || !notes) return;
+    await onSubmit({
+      ...application,
+      amountPaid: amount,
+      totalFeesPaid: amount,
+      paymentMethod: method,
+      paymentStatus: "Paid",
+      invoiceStatus: "Paid",
+      paymentDate,
+      paymentConfirmedBy: confirmedBy,
+      paymentConfirmationType: "Manually Paid",
+      reviewStatus: documentsComplete ? "Eligible For Chief Review" : "Pending Documents",
+      licenseStatus: documentsComplete ? "Awaiting Review" : "Awaiting Payment",
+      completionChecklist: { ...application.completionChecklist, paymentReceived: true },
+      paymentNotes: basePaymentPatch(`Manual payment confirmed by ${confirmedBy}: ${notes}`)
+    }, "Payment Marked Manually Paid");
+  }
+
+  async function markWaived() {
+    const reason = window.prompt("Waiver reason is required.")?.trim();
+    const authorizedBy = window.prompt("Authorized by")?.trim();
+    if (!reason || !authorizedBy) return;
+    await onSubmit({
+      ...application,
+      paymentStatus: "Waived",
+      invoiceStatus: "Waived",
+      paymentConfirmedBy: authorizedBy,
+      paymentConfirmationType: "Waived",
+      reviewStatus: documentsComplete ? "Eligible For Chief Review" : "Pending Documents",
+      licenseStatus: documentsComplete ? "Awaiting Review" : "Awaiting Payment",
+      completionChecklist: { ...application.completionChecklist, paymentReceived: true },
+      paymentNotes: basePaymentPatch(`Payment waived by ${authorizedBy}: ${reason}`)
+    }, "Payment Waived");
+  }
+
+  async function markReadyForChiefReview() {
+    if (!coreComplete) {
+      window.alert("Passport Copy OR National ID Document and Passport-Sized Photograph must be Verified before Chief Review override.");
+      return;
+    }
+    const reason = window.prompt("Override reason is required.")?.trim();
+    const authorizedBy = window.prompt("Authorized by")?.trim();
+    if (!reason || !authorizedBy) return;
+    await onSubmit({
+      ...application,
+      reviewStatus: "Eligible For Chief Review",
+      licenseStatus: "Awaiting Review",
+      paymentConfirmationType: application.paymentConfirmationType || "Admin Ready Override",
+      paymentReadyOverrideReason: reason,
+      paymentReadyOverrideBy: authorizedBy,
+      paymentNotes: basePaymentPatch(`Ready for Chief Review override by ${authorizedBy}: ${reason}`)
+    }, "Application Manually Marked Ready For Chief Review");
+  }
+
+  async function verifyPayment() {
+    await onSubmit({
+      ...application,
+      paymentStatus: "Paid",
+      invoiceStatus: "Paid",
+      reviewStatus: documentsComplete ? "Eligible For Chief Review" : "Pending Documents",
+      licenseStatus: documentsComplete ? "Awaiting Review" : "Awaiting Payment",
+      completionChecklist: { ...application.completionChecklist, paymentReceived: true },
+      paymentNotes: basePaymentPatch("Payment verified from payment section review.")
+    }, "Payment Verified");
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded border border-black/10 bg-white shadow-soft">
+        <div className="border-b border-black/10 p-5">
+          <h3 className="text-lg font-semibold text-ink">Review Payment Section</h3>
+          <p className="mt-1 text-sm text-steel">{application.id} / {application.applicantFullName}</p>
+        </div>
+        <div className="grid gap-4 p-5 md:grid-cols-2">
+          <Info label="Invoice number" value={application.invoiceNumber || "Not generated"} />
+          <Info label="Invoice amount" value={formatCurrency(application.invoiceAmount || application.amountDue, application.invoiceCurrency ?? application.currency)} />
+          <Info label="Payment proof filename" value={application.paymentProofFileName ?? "Not uploaded"} />
+          <Info label="Payment method" value={application.paymentMethod} />
+          <Info label="Amount paid" value={formatCurrency(application.amountPaid, application.currency)} />
+          <Info label="Payment date" value={application.paymentDate} />
+          <Info label="Reference number" value={application.paymentReference} />
+          <Info label="Paid to" value={application.paidTo} />
+          <Info label="Payment status" value={application.paymentStatus} />
+          <Info label="Review status" value={application.reviewStatus} />
+          <Info label="Rejection reason" value={application.paymentRejectionReason ?? "None"} />
+          <Info label="Rejected by/date" value={application.paymentRejectedBy ? `${application.paymentRejectedBy} / ${application.paymentRejectionDate ?? ""}` : "None"} />
+          <label className="md:col-span-2 text-sm font-medium text-steel">Payment notes<textarea readOnly className="mt-1 min-h-24 w-full rounded border border-black/10 bg-[#f7f7f5] px-3 py-2 text-ink" value={application.paymentNotes} /></label>
+          <section className="md:col-span-2 rounded border border-black/10 bg-[#f7f7f5] p-4">
+            <h4 className="font-semibold text-ink">Payment audit history</h4>
+            <div className="mt-3 space-y-2">
+              {paymentAudit.length ? paymentAudit.map((log) => <p className="text-sm text-steel" key={log.id}>{formatDate(log.timestamp)} · {log.action} · {log.notes}</p>) : <p className="text-sm text-steel">No payment audit entries yet.</p>}
+            </div>
+          </section>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-black/10 p-5">
+          <button className="rounded border border-black/10 px-4 py-2 text-sm font-semibold text-steel hover:bg-zinc-50" onClick={onClose}>Close</button>
+          <button className="rounded border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700" onClick={() => void verifyPayment()}>Verify Payment</button>
+          <button className="rounded border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700" onClick={() => void rejectPaymentProof()}>Reject Payment</button>
+          <button className="rounded border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700" onClick={() => void markCashPaid()}>Mark as Cash Paid</button>
+          <button className="rounded border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700" onClick={() => void markManuallyPaid()}>Mark as Manually Paid</button>
+          <button className="rounded border border-zinc-300 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-700" onClick={() => void markWaived()}>Mark as Waived</button>
+          <button className="rounded bg-gold px-4 py-2 text-sm font-semibold text-ink" onClick={() => void markReadyForChiefReview()}>Mark as Ready for Chief Review</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function LicenseApplicationsPage() {
-  const { documents, licenseApplications, licenseReceipts, generatedLicenses, addLicenseApplication, updateLicenseApplication, deleteLicenseApplication, generateLicenseReceipt, generateLicenseDraft, addAuditLog } = useFinanceData();
+  const { documents, auditLogs, licenseApplications, licenseReceipts, generatedLicenses, stampSettings, addLicenseApplication, updateLicenseApplication, deleteLicenseApplication, generateLicenseReceipt, generateLicenseDraft, addAuditLog } = useFinanceData();
   const [query, setQuery] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("");
   const [paidToFilter, setPaidToFilter] = useState("");
@@ -380,6 +671,7 @@ export default function LicenseApplicationsPage() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [editing, setEditing] = useState<LicenseApplication | null>(null);
   const [reviewing, setReviewing] = useState<LicenseApplication | null>(null);
+  const [paymentReviewing, setPaymentReviewing] = useState<LicenseApplication | null>(null);
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return licenseApplications.filter((application) => {
@@ -444,6 +736,31 @@ export default function LicenseApplicationsPage() {
     setReviewing(null);
   }
 
+  async function savePaymentSection(application: LicenseApplication, auditAction: AuditAction) {
+    await updateLicenseApplication(application);
+    addAuditLog({
+      module: "License Applications",
+      recordId: application.id,
+      recordLabel: application.applicantFullName,
+      action: "Payment Section Reviewed",
+      changedBy: "Finance Admin",
+      previousValueSummary: "",
+      newValueSummary: `${application.paymentStatus}; ${application.reviewStatus}`,
+      notes: "Payment section opened and reviewed."
+    });
+    addAuditLog({
+      module: "License Applications",
+      recordId: application.id,
+      recordLabel: application.applicantFullName,
+      action: auditAction,
+      changedBy: "Finance Admin",
+      previousValueSummary: "",
+      newValueSummary: `${application.paymentStatus}; ${application.invoiceStatus}; ${application.reviewStatus}`,
+      notes: application.paymentNotes || application.paymentRejectionReason || ""
+    });
+    setPaymentReviewing(null);
+  }
+
   async function verifyPayment(application: LicenseApplication) {
     const documentsComplete = requiredDocumentsComplete(application);
     const updated = await updateLicenseApplication({
@@ -475,14 +792,27 @@ export default function LicenseApplicationsPage() {
     await updateLicenseApplication({
       ...application,
       paymentStatus: "Rejected",
-      reviewStatus: "Awaiting Payment",
+      reviewStatus: "Pending Review - Payment Section",
       licenseStatus: "Awaiting Payment",
+      paymentRejectionReason: note.trim(),
+      paymentRejectedBy: "Finance Admin",
+      paymentRejectionDate: new Date().toISOString().slice(0, 10),
       completionChecklist: {
         ...application.completionChecklist,
         paymentReceived: false
       },
       paymentNotes: `${application.paymentNotes ? `${application.paymentNotes}\n` : ""}Payment rejected: ${note.trim()}`,
       updatedAt: new Date().toISOString()
+    });
+    addAuditLog({
+      module: "License Applications",
+      recordId: application.id,
+      recordLabel: application.applicantFullName,
+      action: "Payment Proof Rejected",
+      changedBy: "Finance Admin",
+      previousValueSummary: "",
+      newValueSummary: "Payment Status: Rejected; Review Status: Pending Review - Payment Section",
+      notes: note.trim()
     });
   }
 
@@ -517,8 +847,19 @@ export default function LicenseApplicationsPage() {
   }
 
   async function generateLicense(application: LicenseApplication) {
-    if (!requiredDocumentsComplete(application) || !paymentCleared(application)) {
-      window.alert("Cannot generate final license until payment is Paid/Waived and mandatory documents are Verified.");
+    const blockers = licenseIssueBlockers(application);
+    if (blockers.length) {
+      addAuditLog({
+        module: "License Applications",
+        recordId: application.id,
+        recordLabel: application.applicantFullName,
+        action: "License Issue Blocked By Missing Core Document",
+        changedBy: "Local User",
+        previousValueSummary: "",
+        newValueSummary: blockers.join(" "),
+        notes: blockers.join(" ")
+      });
+      window.alert(blockers.join("\n"));
       return;
     }
     try {
@@ -620,6 +961,7 @@ export default function LicenseApplicationsPage() {
                         {application.paymentStatus !== "Paid" && application.paymentStatus !== "Waived" ? (
                           <button className="rounded border border-zinc-300 bg-zinc-50 px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-100" onClick={() => void waivePayment(application)} type="button">Mark Payment Waived</button>
                         ) : null}
+                        <button className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100" onClick={() => setPaymentReviewing(application)} type="button"><ReceiptText className="h-3 w-3" />Review Payment Section</button>
                         {paymentCleared(application) && !licenseReceipts.some((receipt) => receipt.applicationId === application.id) ? (
                           <button className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100" onClick={() => void generateReceipt(application)} type="button"><ReceiptText className="h-3 w-3" />Generate Receipt</button>
                         ) : null}
@@ -640,7 +982,8 @@ export default function LicenseApplicationsPage() {
         <div className="border-t border-black/10 px-4 py-3 text-sm text-steel">Showing {filtered.length} of {licenseApplications.length} license applications</div>
       </section>
       {editing ? <ApplicationModal application={editing} onClose={() => setEditing(null)} onSubmit={saveApplication} /> : null}
-      {reviewing ? <ReviewModal application={reviewing} onClose={() => setReviewing(null)} onSubmit={saveReview} /> : null}
+      {reviewing ? <ReviewModal application={reviewing} stampAvailable={stampSettings.stampAvailable === "Yes"} onClose={() => setReviewing(null)} onSubmit={saveReview} /> : null}
+      {paymentReviewing ? <PaymentSectionModal application={paymentReviewing} auditLogs={auditLogs} onClose={() => setPaymentReviewing(null)} onSubmit={savePaymentSection} /> : null}
     </>
   );
 }

@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/page-header";
 import { RecordFormModal } from "@/components/record-form-modal";
 import { StatusBadge } from "@/components/status-badge";
 import { formatCurrency } from "@/lib/format";
+import { parseMoneyInput } from "@/lib/money-utils";
 import { costCenterTypes, currencies } from "@/lib/options";
 import type { CostCenter } from "@/types";
 
@@ -24,9 +25,8 @@ const emptyCostCenter: CostCenter = {
 };
 
 export default function CostCentersPage() {
-  const { people, documents, costCenters, addCostCenter, updateCostCenter, deleteCostCenter, archiveCostCenter } = useFinanceData();
+  const { documents, costCenters, addCostCenter, updateCostCenter, deleteCostCenter, archiveCostCenter } = useFinanceData();
   const [editing, setEditing] = useState<CostCenter | null>(null);
-  const peopleNames = people.map((person) => person.fullName);
 
   return (
     <>
@@ -37,9 +37,8 @@ export default function CostCentersPage() {
           { key: "id", header: "Cost Center ID", render: (row) => <span className="font-medium text-ink">{row.id}</span> },
           { key: "name", header: "Name", render: (row) => <span className="font-medium text-ink">{row.name}</span> },
           { key: "type", header: "Type", render: (row) => row.type },
-          { key: "owner", header: "Owner", render: (row) => row.owner },
           { key: "status", header: "Status", render: (row) => <StatusBadge value={row.status} /> },
-          { key: "budgetAmount", header: "Budget", render: (row) => <span className="font-semibold text-ink">{formatCurrency(row.budgetAmount, row.currency)}</span> },
+          { key: "budgetAmount", header: "Budget", render: (row) => row.budgetAmount > 0 ? <span className="font-semibold text-ink">{formatCurrency(row.budgetAmount, row.currency)}</span> : <span className="text-steel">Open-ended</span> },
           { key: "documents", header: "Documents", render: (row) => documents.filter((document) => document.linkedModule === "Cost Center" && document.linkedRecordId === row.id).length },
           { key: "notes", header: "Notes", render: (row) => row.notes },
           {
@@ -58,7 +57,7 @@ export default function CostCentersPage() {
           { key: "status", label: "Status", options: ["Active", "Closed", "Archived"], getValue: (row) => row.status }
         ]}
         getSearchText={(row) => Object.values(row).join(" ")}
-        onAdd={() => setEditing({ ...emptyCostCenter, owner: peopleNames[0] ?? "" })}
+        onAdd={() => setEditing({ ...emptyCostCenter })}
         onDelete={(row) => void deleteCostCenter(row)}
         onEdit={(row) => setEditing(row)}
         rows={costCenters}
@@ -69,7 +68,6 @@ export default function CostCentersPage() {
           fields={[
             { key: "name", label: "Name" },
             { key: "type", label: "Type", type: "select", options: costCenterTypes },
-            { key: "owner", label: "Owner / Responsible Person", type: "select", options: peopleNames },
             { key: "status", label: "Status", type: "select", options: ["Active", "Closed", "Archived"] },
             { key: "budgetAmount", label: "Budget amount", type: "number" },
             { key: "currency", label: "Currency", type: "select", options: currencies },
@@ -77,7 +75,7 @@ export default function CostCentersPage() {
           ]}
           onClose={() => setEditing(null)}
           onSubmit={async (costCenter) => {
-            const normalized = { ...costCenter, budgetAmount: Number(costCenter.budgetAmount) };
+            const normalized = { ...costCenter, budgetAmount: typeof costCenter.budgetAmount === "number" ? costCenter.budgetAmount : parseMoneyInput(String(costCenter.budgetAmount)) };
             if (normalized.id) {
               await updateCostCenter(normalized);
             } else {

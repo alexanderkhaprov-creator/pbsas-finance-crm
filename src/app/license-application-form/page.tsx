@@ -7,7 +7,7 @@ import { Send } from "lucide-react";
 import { useFinanceData } from "@/components/finance-data-provider";
 import { getNextSequentialId } from "@/lib/id-utils";
 import { licenseCategories } from "@/lib/options";
-import type { CurrencyCode, LicenseApplication, LicenseCategory, LicenseDocumentChecklistItem } from "@/types";
+import type { CoachCertification, CurrencyCode, LicenseApplication, LicenseCategory, LicenseDocumentChecklistItem, NotableFighter } from "@/types";
 
 type FormState = Partial<LicenseApplication> & {
   supportingDocuments: string;
@@ -23,6 +23,8 @@ const initialForm: FormState = {
   nationality: "",
   passportNumber: "",
   nationalIdNumber: "",
+  nationalIdRawDigits: "",
+  nationalIdFormatted: "",
   gender: "",
   existingRegisteredLicenseNumber: "",
   returningApplicant: false,
@@ -54,6 +56,27 @@ const initialForm: FormState = {
   declarationDate: new Date().toISOString().slice(0, 10)
 };
 
+const nationalities = [
+  "Afghan", "Albanian", "Algerian", "American", "Argentine", "Armenian", "Australian", "Austrian", "Azerbaijani", "Bahraini", "Bangladeshi", "Belarusian", "Belgian", "Brazilian", "British", "Bulgarian", "Cameroonian", "Canadian", "Chinese", "Colombian", "Croatian", "Cuban", "Cypriot", "Czech", "Danish", "Dutch", "Egyptian", "Emirati", "Ethiopian", "Filipino", "Finnish", "French", "Georgian", "German", "Ghanaian", "Greek", "Hungarian", "Indian", "Indonesian", "Iranian", "Iraqi", "Irish", "Italian", "Japanese", "Jordanian", "Kazakh", "Kenyan", "Kuwaiti", "Kyrgyz", "Lebanese", "Libyan", "Malaysian", "Mexican", "Moldovan", "Moroccan", "Nepalese", "New Zealander", "Nigerian", "Norwegian", "Omani", "Pakistani", "Palestinian", "Polish", "Portuguese", "Qatari", "Romanian", "Russian", "Saudi", "Serbian", "Singaporean", "South African", "Spanish", "Sri Lankan", "Sudanese", "Swedish", "Swiss", "Syrian", "Tajik", "Thai", "Tunisian", "Turkish", "Ukrainian", "Uzbek", "Vietnamese", "Yemeni", "Other"
+];
+
+const countries = [
+  "Afghanistan", "Albania", "Algeria", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bahrain", "Bangladesh", "Belarus", "Belgium", "Brazil", "Bulgaria", "Cameroon", "Canada", "China", "Colombia", "Croatia", "Cuba", "Cyprus", "Czech Republic", "Denmark", "Egypt", "Ethiopia", "Finland", "France", "Georgia", "Germany", "Ghana", "Greece", "Hungary", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Italy", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kuwait", "Kyrgyzstan", "Lebanon", "Libya", "Malaysia", "Mexico", "Moldova", "Morocco", "Nepal", "Netherlands", "New Zealand", "Nigeria", "Norway", "Oman", "Pakistan", "Palestine", "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia", "Saudi Arabia", "Serbia", "Singapore", "South Africa", "Spain", "Sri Lanka", "Sudan", "Sweden", "Switzerland", "Syria", "Tajikistan", "Thailand", "Tunisia", "Turkey", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uzbekistan", "Vietnam", "Yemen", "Other"
+];
+
+const yearsOptions = [...Array.from({ length: 25 }, (_, index) => String(index)), "25+"];
+
+function yearsLabel(value: string) {
+  if (value === "25+") return "25+ Years";
+  return value === "1" ? "1 Year" : `${value} Years`;
+}
+
+function formatNationalIdDigits(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 15);
+  const groups = [digits.slice(0, 3), digits.slice(3, 7), digits.slice(7, 14), digits.slice(14, 15)].filter(Boolean);
+  return { raw: digits, formatted: groups.join("-") };
+}
+
 function nextLin(applications: LicenseApplication[]) {
   const highest = applications.reduce((max, application) => {
     const match = application.licenseIssueNumber.match(/^UAEAC2026(\d{5})$/);
@@ -77,6 +100,13 @@ const universalRequiredDocuments = ["Copy of Passport OR National ID document", 
 const universalOptionalDocuments = ["Current Medical Examination", "Professional Certifications Held", "Other Supporting Documents"];
 const existingLicenseRequirementId = "LDR-EXISTING-LICENSE-CONDITIONAL";
 
+function isDocumentRequiredForCategory(documentName: string, category: LicenseCategory, heldPreviousLicense: FormState["heldPreviousLicense"]) {
+  if (heldPreviousLicense === "Yes" && documentName === "Existing License Copies") return true;
+  if (universalRequiredDocuments.includes(documentName)) return true;
+  if (category === "Professional Boxer") return false;
+  return false;
+}
+
 function makeChecklistItem(requirementId: string, documentName: string, required: boolean, existing?: LicenseDocumentChecklistItem, notes = ""): LicenseDocumentChecklistItem {
   return {
     requirementId,
@@ -94,7 +124,7 @@ function buildChecklist(category: LicenseCategory, requirements: ReturnType<type
   const existingByName = new Map(existing.map((item) => [item.documentName, item]));
   const rows = requirements
     .filter((requirement) => requirement.status === "Active" && requirement.appliesToCategories.includes(category))
-    .map((requirement) => makeChecklistItem(requirement.id, requirement.documentName, universalRequiredDocuments.includes(requirement.documentName), existingById.get(requirement.id), requirement.notes));
+    .map((requirement) => makeChecklistItem(requirement.id, requirement.documentName, isDocumentRequiredForCategory(requirement.documentName, category, heldPreviousLicense), existingById.get(requirement.id), requirement.notes));
 
   [...universalRequiredDocuments, ...universalOptionalDocuments].forEach((documentName) => {
     if (!rows.some((item) => item.documentName === documentName)) {
@@ -114,7 +144,7 @@ function buildChecklist(category: LicenseCategory, requirements: ReturnType<type
 
   return Array.from(new Map(filteredRows.map((item) => [item.documentName, item])).values()).map((item) => ({
     ...item,
-    required: universalRequiredDocuments.includes(item.documentName) || (heldPreviousLicense === "Yes" && item.documentName === "Existing License Copies")
+    required: isDocumentRequiredForCategory(item.documentName, category, heldPreviousLicense)
   }));
 }
 
@@ -127,7 +157,20 @@ export default function LicenseApplicationFormPage() {
   const category = form.licenseCategory ?? "Professional Boxer";
   const fee = licenseFeeSchedule.find((item) => item.status === "Active" && item.category === category) ?? licenseFeeSchedule.find((item) => item.category === "Other");
   const requiredDocuments = documentChecklist.filter((item) => item.required);
-  const optionalDocuments = documentChecklist.filter((item) => !item.required);
+  const nationalIdComplete = !form.nationalIdRawDigits || form.nationalIdRawDigits.length === 15;
+  const section3Complete = ["deniedLicense", "finedSuspendedDisciplined", "underInvestigation", "criminalConviction"].every((key) => {
+    const value = form[key as keyof FormState];
+    const explanation = form[`${key}Explanation` as keyof FormState];
+    return (value === "Yes" && String(explanation ?? "").trim()) || value === "No";
+  });
+  const section4Complete = Boolean(
+    form.medicalCondition &&
+      (form.medicalCondition !== "Yes" || form.medicalConditionExplanation?.trim()) &&
+      form.concussionPast12Months &&
+      form.prescribedMedications &&
+      (form.prescribedMedications !== "Yes" || form.prescribedMedicationsList?.trim())
+  );
+  const declarationComplete = Boolean(form.declarationSignature?.trim() && form.declarationApplicantName?.trim() && form.declarationDate);
   const requiredFieldsComplete = Boolean(
     (form.fullLegalName || form.applicantFullName)?.trim() &&
       form.dateOfBirth &&
@@ -135,7 +178,7 @@ export default function LicenseApplicationFormPage() {
       form.email?.trim() &&
       form.emergencyContactName?.trim() &&
       form.emergencyContactPhone?.trim() &&
-      (form.passportNumber?.trim() || form.nationalIdNumber?.trim())
+      (form.passportNumber?.trim() || (form.nationalIdRawDigits?.length === 15 && form.nationalIdNumber?.trim()))
   );
   const boxerMedicalComplete =
     category !== "Professional Boxer" ||
@@ -143,7 +186,23 @@ export default function LicenseApplicationFormPage() {
   const documentsComplete = requiredDocuments.every((item) => item.fileName.trim() && item.verificationStatus === "Received");
   const existingLicenseFileName = documentChecklist.find((item) => item.documentName === "Existing License Copies")?.fileName || form.existingLicenseEvidenceFileName || "";
   const previousLicenseComplete = form.heldPreviousLicense !== "Yes" || Boolean(existingLicenseFileName.trim());
-  const isApplyReady = requiredFieldsComplete && boxerMedicalComplete && documentsComplete && previousLicenseComplete && Boolean(form.declarationAccepted);
+  const missingItems = [
+    ...(!(form.fullLegalName || form.applicantFullName)?.trim() ? ["Full Legal Name"] : []),
+    ...(!form.dateOfBirth ? ["Date of Birth"] : []),
+    ...(!form.nationality?.trim() ? ["Nationality"] : []),
+    ...(!form.email?.trim() ? ["Email"] : []),
+    ...(!form.emergencyContactName?.trim() ? ["Emergency Contact Name"] : []),
+    ...(!form.emergencyContactPhone?.trim() ? ["Emergency Contact Phone"] : []),
+    ...(!(form.passportNumber?.trim() || form.nationalIdNumber?.trim()) ? ["Passport or National ID"] : []),
+    ...(form.nationalIdNumber?.trim() && !nationalIdComplete ? ["National ID format"] : []),
+    ...(!section3Complete ? ["Section 3 background questions"] : []),
+    ...(!section4Complete ? ["Section 4 medical choices"] : []),
+    ...(!boxerMedicalComplete ? ["Professional Boxer medical fields"] : []),
+    ...(!documentsComplete ? ["Required documents"] : []),
+    ...(!previousLicenseComplete ? ["Existing License Copies"] : []),
+    ...(!declarationComplete ? ["Declaration"] : [])
+  ];
+  const isApplyReady = requiredFieldsComplete && nationalIdComplete && section3Complete && section4Complete && boxerMedicalComplete && documentsComplete && previousLicenseComplete && declarationComplete;
 
   const previews = useMemo(() => ({
     appId: getNextSequentialId(licenseApplications, "APP"),
@@ -184,8 +243,8 @@ export default function LicenseApplicationFormPage() {
       setMessage("Other category description is required.");
       return;
     }
-    if (!form.declarationAccepted) {
-      setMessage("Declaration must be accepted before submission.");
+    if (!declarationComplete) {
+      setMessage("Declaration signature, applicant name, and declaration date are required.");
       return;
     }
     if (!isApplyReady) {
@@ -208,6 +267,8 @@ export default function LicenseApplicationFormPage() {
       dateOfBirth: form.dateOfBirth ?? "",
       passportNumber: form.passportNumber,
       nationalIdNumber: form.nationalIdNumber,
+      nationalIdRawDigits: form.nationalIdRawDigits,
+      nationalIdFormatted: form.nationalIdFormatted,
       identificationNumber: form.passportNumber || form.nationalIdNumber || "",
       gender: form.gender,
       existingRegisteredLicenseNumber: form.existingRegisteredLicenseNumber,
@@ -223,6 +284,8 @@ export default function LicenseApplicationFormPage() {
       licenseCategory: category,
       additionalOfficialCategories: form.additionalOfficialCategories,
       otherCategoryDescription: form.otherCategoryDescription ?? "",
+      coachCertifications: form.coachCertifications ?? [],
+      notableFighters: form.notableFighters ?? [],
       returningApplicant: Boolean(form.returningApplicant),
       heldPreviousLicense: form.heldPreviousLicense,
       existingLicenseCommission: form.existingLicenseCommission,
@@ -271,7 +334,7 @@ export default function LicenseApplicationFormPage() {
       declarationSignature: form.declarationSignature,
       declarationApplicantName: form.declarationApplicantName || applicantName,
       declarationDate: form.declarationDate || now.slice(0, 10),
-      declarationAccepted: true,
+      declarationAccepted: declarationComplete,
       completionChecklist: {
         photoReceived: Boolean(form.applicantPhotoFileName),
         identificationProvided: Boolean(form.passportNumber || form.nationalIdNumber),
@@ -313,14 +376,19 @@ export default function LicenseApplicationFormPage() {
           <Input label="Full Legal Name" required value={form.fullLegalName ?? ""} onChange={(value) => { setValue("fullLegalName", value); setValue("applicantFullName", value); }} />
           <Input label="Date of Birth" required type="date" value={form.dateOfBirth ?? ""} onChange={(value) => setValue("dateOfBirth", value)} />
           <Input label="Place of Birth" value={form.placeOfBirth ?? ""} onChange={(value) => setValue("placeOfBirth", value)} />
-          <Input label="Nationality" required value={form.nationality ?? ""} onChange={(value) => setValue("nationality", value)} />
+          <Select label="Nationality *" value={form.nationality ?? ""} options={["", ...nationalities]} onChange={(value) => setValue("nationality", value)} />
           <Input label="Passport Number" value={form.passportNumber ?? ""} onChange={(value) => setValue("passportNumber", value)} />
-          <Input label="National ID Number" value={form.nationalIdNumber ?? ""} onChange={(value) => setValue("nationalIdNumber", value)} />
+          <label className="text-sm font-semibold">National ID Number<input className="mt-1 w-full rounded border border-black/20 px-3 py-2 font-sans" inputMode="numeric" value={form.nationalIdFormatted ?? form.nationalIdNumber ?? ""} onChange={(event) => {
+            const next = formatNationalIdDigits(event.target.value);
+            setValue("nationalIdRawDigits", next.raw);
+            setValue("nationalIdFormatted", next.formatted);
+            setValue("nationalIdNumber", next.formatted);
+          }} /><span className="mt-1 block text-xs font-normal text-zinc-600">Only enter numbers. Dashes will be added automatically.</span></label>
           <Select label="Gender" value={form.gender ?? ""} options={["", "Male", "Female", "Non-binary"]} onChange={(value) => setValue("gender", value as FormState["gender"])} />
           <Input label="Existing registered license number, if any" value={form.existingRegisteredLicenseNumber ?? ""} onChange={(value) => setValue("existingRegisteredLicenseNumber", value)} />
           <Input label="Residential Address" value={form.address ?? ""} onChange={(value) => setValue("address", value)} span />
           <Input label="City" value={form.city ?? ""} onChange={(value) => setValue("city", value)} />
-          <Input label="Country" value={form.country ?? ""} onChange={(value) => setValue("country", value)} />
+          <Select label="Country" value={form.country ?? ""} options={["", ...countries]} onChange={(value) => setValue("country", value)} />
           <Input label="Postal Code" value={form.postalCode ?? ""} onChange={(value) => setValue("postalCode", value)} />
           <Input label="Mobile Number" value={form.phone ?? ""} onChange={(value) => setValue("phone", value)} />
           <Input label="Email Address" required type="email" value={form.email ?? ""} onChange={(value) => setValue("email", value)} />
@@ -385,29 +453,28 @@ export default function LicenseApplicationFormPage() {
           {category === "Coach / Second" ? <GeneralFields form={form} setValue={setValue} coach /> : null}
           {officials.includes(category) ? <OfficialFields form={form} setValue={setValue} /> : null}
           {category === "Ringside Physician / Doctor" ? <DoctorFields form={form} setValue={setValue} /> : null}
-          {["Cutman", "Matchmaker", "Promoter Representative", "Other"].includes(category) ? <GeneralFields form={form} setValue={setValue} /> : null}
+          {["Cutman", "Matchmaker", "Manager", "Promoter Representative", "Other"].includes(category) ? <GeneralFields form={form} setValue={setValue} /> : null}
         </Section>
 
         <Section title="Section 3 - Disciplinary & Background Information">
-          <Question field="deniedLicense" explanation="deniedLicenseExplanation" label="Have you ever been denied a license by any athletic commission?" form={form} setValue={setValue} />
-          <Question field="finedSuspendedDisciplined" explanation="finedSuspendedDisciplinedExplanation" label="Have you ever been fined, suspended, or disciplined by any sports authority?" form={form} setValue={setValue} />
-          <Question field="underInvestigation" explanation="underInvestigationExplanation" label="Are you currently under investigation by any athletic commission or sports governing body?" form={form} setValue={setValue} />
-          <Question field="criminalConviction" explanation="criminalConvictionExplanation" label="Have you ever been convicted of a criminal offense?" form={form} setValue={setValue} />
+          <Question field="deniedLicense" explanation="deniedLicenseExplanation" required label="Have you ever been denied a license by any athletic commission?" form={form} setValue={setValue} />
+          <Question field="finedSuspendedDisciplined" explanation="finedSuspendedDisciplinedExplanation" required label="Have you ever been fined, suspended, or disciplined by any sports authority?" form={form} setValue={setValue} />
+          <Question field="underInvestigation" explanation="underInvestigationExplanation" required label="Are you currently under investigation by any athletic commission or sports governing body?" form={form} setValue={setValue} />
+          <Question field="criminalConviction" explanation="criminalConvictionExplanation" required label="Have you ever been convicted of a criminal offense?" form={form} setValue={setValue} />
         </Section>
 
         <Section title="Section 4 - Medical & Health Declaration">
           <p className="rounded border border-black/10 bg-zinc-50 p-3 text-sm text-zinc-700 md:col-span-2">Required for Boxers and Officials participating in field of play. Current category: {medicalRequiredCategories.includes(category) ? "Required" : "Optional unless admin marks required"}.</p>
-          <Question field="medicalCondition" explanation="medicalConditionExplanation" required={category === "Professional Boxer"} label="Do you currently suffer from any medical condition that may impair your duties or participation?" form={form} setValue={setValue} />
-          <YesNo label={`Have you suffered a concussion within the past 12 months?${category === "Professional Boxer" ? " *" : ""}`} value={form.concussionPast12Months ?? ""} onChange={(value) => setValue("concussionPast12Months", value)} />
-          <Question field="prescribedMedications" explanation="prescribedMedicationsList" required={category === "Professional Boxer"} label="Are you currently taking any prescribed medications?" form={form} setValue={setValue} />
+          <Question field="medicalCondition" explanation="medicalConditionExplanation" required label="Do you currently suffer from any medical condition that may impair your duties or participation?" form={form} setValue={setValue} />
+          <YesNo label="Have you suffered a concussion within the past 12 months? *" value={form.concussionPast12Months ?? ""} onChange={(value) => setValue("concussionPast12Months", value)} />
+          <Question field="prescribedMedications" explanation="prescribedMedicationsList" required label="Are you currently taking any prescribed medications?" form={form} setValue={setValue} />
           <Input label="Blood Type" required={category === "Professional Boxer"} value={form.bloodType ?? ""} onChange={(value) => setValue("bloodType", value)} />
           <Input label="Allergies" required={category === "Professional Boxer"} value={form.allergies ?? ""} onChange={(value) => setValue("allergies", value)} />
         </Section>
 
         <section className="mt-8 border-t border-black/20 pt-5">
-          <h2 className="font-serif text-xl font-bold">Section 5 - Required Documents Checklist</h2>
-          <DocumentChecklist title="Required Documents" items={requiredDocuments} updateDocument={updateDocument} />
-          <DocumentChecklist title="Optional Documents" items={optionalDocuments} updateDocument={updateDocument} />
+          <h2 className="font-serif text-xl font-bold">Section 5 - Documents Checklist</h2>
+          <DocumentChecklist items={documentChecklist} updateDocument={updateDocument} />
         </section>
 
         <section className="mt-8 border-t border-black/20 pt-5 text-sm leading-6">
@@ -420,10 +487,9 @@ export default function LicenseApplicationFormPage() {
             <Input label="Applicant Name" value={form.declarationApplicantName ?? ""} onChange={(value) => setValue("declarationApplicantName", value)} />
             <Input label="Date" type="date" value={form.declarationDate ?? ""} onChange={(value) => setValue("declarationDate", value)} />
           </div>
-          <label className="mt-4 flex items-center gap-2 font-semibold">
-            <input checked={Boolean(form.declarationAccepted)} className="h-4 w-4 accent-black" type="checkbox" onChange={(event) => setValue("declarationAccepted", event.target.checked)} />
-            Declaration Accepted
-          </label>
+          <div className={`mt-4 inline-flex rounded border px-3 py-2 text-sm font-semibold ${declarationComplete ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+            {declarationComplete ? "Declaration accepted" : "Declaration incomplete"}
+          </div>
         </section>
 
         <section className="mt-8 border-t border-black/20 pt-5 text-sm leading-6">
@@ -435,7 +501,8 @@ export default function LicenseApplicationFormPage() {
           </div>
         </section>
 
-        <div className="mt-8 flex justify-end">
+        <div className="mt-8 flex flex-col items-end gap-3">
+          {!isApplyReady ? <div className="max-w-2xl rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Missing: {missingItems.slice(0, 8).join(", ")}{missingItems.length > 8 ? ", ..." : ""}</div> : null}
           <button disabled={!isApplyReady} className="inline-flex items-center gap-2 rounded bg-black px-5 py-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-600" onClick={apply}>
             <Send className="h-4 w-4" />
             APPLY
@@ -467,12 +534,16 @@ function YesNo({ label, value, onChange }: { label: string; value: string; onCha
   return <Select label={label} value={value} options={["", "Yes", "No"]} onChange={(nextValue) => onChange(nextValue as "Yes" | "No" | "")} />;
 }
 
+function YearsSelect({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return <label className="text-sm font-semibold">{label}<select className="mt-1 w-full rounded border border-black/20 px-3 py-2 font-sans" value={value} onChange={(event) => onChange(event.target.value)}><option value="">Select years</option>{yearsOptions.map((option) => <option key={option} value={option}>{yearsLabel(option)}</option>)}</select></label>;
+}
+
 function Question({ field, explanation, label, form, setValue, required = false }: { field: keyof FormState; explanation: keyof FormState; label: string; form: FormState; setValue: <K extends keyof FormState>(key: K, value: FormState[K]) => void; required?: boolean }) {
   const value = String(form[field] ?? "");
   return (
     <>
       <YesNo label={`${label}${required ? " *" : ""}`} value={value} onChange={(nextValue) => setValue(field, nextValue as never)} />
-      {value === "Yes" ? <Input label="If yes, explain" value={String(form[explanation] ?? "")} onChange={(nextValue) => setValue(explanation, nextValue as never)} /> : null}
+      {value === "Yes" ? <Input label="If yes, explain" required={required} value={String(form[explanation] ?? "")} onChange={(nextValue) => setValue(explanation, nextValue as never)} /> : null}
     </>
   );
 }
@@ -480,11 +551,62 @@ function Question({ field, explanation, label, form, setValue, required = false 
 function GeneralFields({ form, setValue, coach = false }: { form: FormState; setValue: <K extends keyof FormState>(key: K, value: FormState[K]) => void; coach?: boolean }) {
   return (
     <>
-      <Input label="Years of Experience" value={form.yearsOfExperience ?? ""} onChange={(value) => setValue("yearsOfExperience", value)} />
+      <YearsSelect label="Years of Experience" value={form.yearsOfExperience ?? ""} onChange={(value) => setValue("yearsOfExperience", value)} />
       <Input label={coach ? "Current Gym / Team" : "Current Organization / Team"} value={(coach ? form.currentGymOrTeam : form.currentOrganizationTeam) ?? ""} onChange={(value) => setValue(coach ? "currentGymOrTeam" : "currentOrganizationTeam", value)} />
-      <Input label="Professional Certifications Held" value={form.professionalCertificationsHeld ?? ""} onChange={(value) => setValue("professionalCertificationsHeld", value)} />
-      {coach ? <Input label="Notable Fighters Trained" value={form.notableFightersTrained ?? ""} onChange={(value) => setValue("notableFightersTrained", value)} /> : <Input label="Relevant Experience Notes" value={form.relevantExperienceNotes ?? ""} onChange={(value) => setValue("relevantExperienceNotes", value)} />}
+      {coach ? (
+        <>
+          <CoachCertifications rows={form.coachCertifications ?? []} onChange={(rows) => setValue("coachCertifications", rows)} />
+          <NotableFighters rows={form.notableFighters ?? []} onChange={(rows) => setValue("notableFighters", rows)} />
+        </>
+      ) : (
+        <>
+          <Input label="Professional Certifications Held" value={form.professionalCertificationsHeld ?? ""} onChange={(value) => setValue("professionalCertificationsHeld", value)} />
+          <Input label="Relevant Experience Notes" value={form.relevantExperienceNotes ?? ""} onChange={(value) => setValue("relevantExperienceNotes", value)} />
+        </>
+      )}
     </>
+  );
+}
+
+function CoachCertifications({ rows, onChange }: { rows: CoachCertification[]; onChange: (rows: CoachCertification[]) => void }) {
+  const safeRows = rows.length ? rows : [{ certificationName: "", issuingOrganization: "", yearIssued: "", notes: "" }];
+  return (
+    <div className="md:col-span-2">
+      <p className="text-sm font-semibold">Professional Certifications Held</p>
+      <div className="mt-2 space-y-3">
+        {safeRows.map((row, index) => (
+          <div className="grid gap-3 rounded border border-black/10 p-3 md:grid-cols-4" key={index}>
+            <input className="rounded border border-black/20 px-3 py-2 text-sm" placeholder="Certification name" value={row.certificationName} onChange={(event) => onChange(safeRows.map((item, itemIndex) => itemIndex === index ? { ...item, certificationName: event.target.value } : item))} />
+            <input className="rounded border border-black/20 px-3 py-2 text-sm" placeholder="Issuing organization" value={row.issuingOrganization} onChange={(event) => onChange(safeRows.map((item, itemIndex) => itemIndex === index ? { ...item, issuingOrganization: event.target.value } : item))} />
+            <input className="rounded border border-black/20 px-3 py-2 text-sm" placeholder="Year issued" value={row.yearIssued} onChange={(event) => onChange(safeRows.map((item, itemIndex) => itemIndex === index ? { ...item, yearIssued: event.target.value.replace(/\D/g, "").slice(0, 4) } : item))} />
+            <div className="flex gap-2">
+              <input className="min-w-0 flex-1 rounded border border-black/20 px-3 py-2 text-sm" placeholder="Notes" value={row.notes} onChange={(event) => onChange(safeRows.map((item, itemIndex) => itemIndex === index ? { ...item, notes: event.target.value } : item))} />
+              <button className="rounded border border-red-200 px-3 py-2 text-xs font-semibold text-red-700" type="button" onClick={() => onChange(safeRows.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button className="mt-2 rounded border border-black/20 px-3 py-2 text-xs font-semibold" type="button" onClick={() => onChange([...safeRows, { certificationName: "", issuingOrganization: "", yearIssued: "", notes: "" }])}>Add certification</button>
+    </div>
+  );
+}
+
+function NotableFighters({ rows, onChange }: { rows: NotableFighter[]; onChange: (rows: NotableFighter[]) => void }) {
+  const safeRows = rows.length ? rows : [{ fighterName: "", levelRecordNotes: "" }];
+  return (
+    <div className="md:col-span-2">
+      <p className="text-sm font-semibold">Notable Fighters Trained</p>
+      <div className="mt-2 space-y-3">
+        {safeRows.map((row, index) => (
+          <div className="grid gap-3 rounded border border-black/10 p-3 md:grid-cols-[1fr_1.5fr_auto]" key={index}>
+            <input className="rounded border border-black/20 px-3 py-2 text-sm" placeholder="Fighter name" value={row.fighterName} onChange={(event) => onChange(safeRows.map((item, itemIndex) => itemIndex === index ? { ...item, fighterName: event.target.value } : item))} />
+            <input className="rounded border border-black/20 px-3 py-2 text-sm" placeholder="Level / record / notes" value={row.levelRecordNotes} onChange={(event) => onChange(safeRows.map((item, itemIndex) => itemIndex === index ? { ...item, levelRecordNotes: event.target.value } : item))} />
+            <button className="rounded border border-red-200 px-3 py-2 text-xs font-semibold text-red-700" type="button" onClick={() => onChange(safeRows.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
+          </div>
+        ))}
+      </div>
+      <button className="mt-2 rounded border border-black/20 px-3 py-2 text-xs font-semibold" type="button" onClick={() => onChange([...safeRows, { fighterName: "", levelRecordNotes: "" }])}>Add fighter</button>
+    </div>
   );
 }
 
@@ -492,8 +614,8 @@ function OfficialFields({ form, setValue }: { form: FormState; setValue: <K exte
   return (
     <>
       <Input label="Official Classification" value={form.officialClassification ?? ""} onChange={(value) => setValue("officialClassification", value)} />
-      <Input label="Years of Experience in Professional Boxing" value={form.professionalBoxingExperienceYears ?? ""} onChange={(value) => setValue("professionalBoxingExperienceYears", value)} />
-      <Input label="Years of Experience in Amateur Boxing" value={form.amateurBoxingExperienceYears ?? ""} onChange={(value) => setValue("amateurBoxingExperienceYears", value)} />
+      <YearsSelect label="Years of Experience in Professional Boxing" value={form.professionalBoxingExperienceYears ?? ""} onChange={(value) => setValue("professionalBoxingExperienceYears", value)} />
+      <YearsSelect label="Years of Experience in Amateur Boxing" value={form.amateurBoxingExperienceYears ?? ""} onChange={(value) => setValue("amateurBoxingExperienceYears", value)} />
       <Input label="Current Federation / Commission Memberships" value={form.currentMemberships ?? ""} onChange={(value) => setValue("currentMemberships", value)} />
       <Input label="International Certifications or Appointments" value={form.internationalCertifications ?? ""} onChange={(value) => setValue("internationalCertifications", value)} />
       <Input label="Languages Spoken" value={form.languagesSpoken ?? ""} onChange={(value) => setValue("languagesSpoken", value)} />
@@ -506,19 +628,18 @@ function DoctorFields({ form, setValue }: { form: FormState; setValue: <K extend
     <>
       <Input label="Medical Specialty" value={form.medicalSpecialty ?? ""} onChange={(value) => setValue("medicalSpecialty", value)} />
       <Input label="Medical License Number" value={form.medicalLicenseNumber ?? ""} onChange={(value) => setValue("medicalLicenseNumber", value)} />
-      <Input label="Country of Medical Registration" value={form.medicalRegistrationCountry ?? ""} onChange={(value) => setValue("medicalRegistrationCountry", value)} />
+      <Select label="Country of Medical Registration" value={form.medicalRegistrationCountry ?? ""} options={["", ...countries]} onChange={(value) => setValue("medicalRegistrationCountry", value)} />
       <Input label="Hospital / Clinic Affiliation" value={form.hospitalClinicAffiliation ?? ""} onChange={(value) => setValue("hospitalClinicAffiliation", value)} />
-      <Input label="Years of Ringside Experience" value={form.ringsideExperienceYears ?? ""} onChange={(value) => setValue("ringsideExperienceYears", value)} />
+      <YearsSelect label="Years of Ringside Experience" value={form.ringsideExperienceYears ?? ""} onChange={(value) => setValue("ringsideExperienceYears", value)} />
       <Input label="Trauma / Emergency Medicine Experience" value={form.traumaEmergencyExperience ?? ""} onChange={(value) => setValue("traumaEmergencyExperience", value)} />
       <Input label="Current CPR / ACLS Certification Expiry Date" type="date" value={form.cprAclsExpiryDate ?? ""} onChange={(value) => setValue("cprAclsExpiryDate", value)} />
     </>
   );
 }
 
-function DocumentChecklist({ title, items, updateDocument }: { title: string; items: LicenseDocumentChecklistItem[]; updateDocument: (requirementId: string, patch: Partial<LicenseDocumentChecklistItem>) => void }) {
+function DocumentChecklist({ items, updateDocument }: { items: LicenseDocumentChecklistItem[]; updateDocument: (requirementId: string, patch: Partial<LicenseDocumentChecklistItem>) => void }) {
   return (
     <div className="mt-4">
-      <h3 className="font-serif text-lg font-bold">{title}</h3>
       <div className="mt-3 space-y-3">
         {items.map((item) => (
           <div className="grid gap-3 rounded border border-black/10 p-3 md:grid-cols-[1.2fr_1fr_auto_1fr]" key={item.requirementId}>

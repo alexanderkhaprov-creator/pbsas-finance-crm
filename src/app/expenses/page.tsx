@@ -44,9 +44,13 @@ export default function ExpensesPage() {
         expense.id,
         expense.date,
         expense.paidBy,
+        expense.paidByPersonId,
+        expense.expensePurpose,
         expense.linkType,
         expense.event,
+        expense.linkedEventId,
         expense.costCenter,
+        expense.costCenterId,
         expense.category,
         expense.description,
         expense.vendor,
@@ -109,10 +113,13 @@ export default function ExpensesPage() {
     { label: "Expense ID", key: "id" },
     { label: "Date", key: "date" },
     { label: "Paid by", key: "paidBy" },
+    { label: "Person ID" },
     { label: "Link" },
-    { label: "Event / activity", key: "event" },
+    { label: "Linked event", key: "event" },
+    { label: "Cost center ID" },
     { label: "Cost center", key: "costCenter" },
     { label: "Category", key: "category" },
+    { label: "Purpose" },
     { label: "Description" },
     { label: "Amount", key: "amount" },
     { label: "Currency" },
@@ -233,10 +240,13 @@ export default function ExpensesPage() {
                   <td className="px-4 py-4 font-medium text-ink">{expense.id}</td>
                   <td className="px-4 py-4 text-steel">{formatDate(expense.date)}</td>
                   <td className="px-4 py-4 text-steel">{expense.paidBy}</td>
+                  <td className="px-4 py-4 text-steel">{expense.paidByPersonId || "Legacy"}</td>
                   <td className="px-4 py-4 text-steel">{expense.linkType}</td>
-                  <td className="px-4 py-4 text-steel">{expense.event}</td>
+                  <td className="px-4 py-4 text-steel">{expense.linkedEventName || expense.event}</td>
+                  <td className="px-4 py-4 text-steel">{expense.costCenterId || "General"}</td>
                   <td className="px-4 py-4 text-steel">{expense.costCenter || "No cost center"}</td>
                   <td className="px-4 py-4 text-steel">{expense.category}</td>
+                  <td className="max-w-[240px] px-4 py-4 font-medium text-ink">{expense.expensePurpose || expense.description}</td>
                   <td className="max-w-[260px] px-4 py-4 text-steel">{expense.description}</td>
                   <td className="px-4 py-4 font-semibold text-ink">{formatCurrency(expense.amount, expense.currency)}</td>
                   <td className="px-4 py-4 text-steel">{expense.currency}</td>
@@ -327,6 +337,8 @@ export default function ExpensesPage() {
           events={eventNames}
           expenseIdPreview={getNextSequentialId(expenses, "EXP")}
           people={peopleNames}
+          peopleRecords={people.map((person) => ({ id: person.id, fullName: person.fullName }))}
+          eventRecords={events.map((event) => ({ id: event.id, eventName: event.eventName }))}
           costCenters={costCenterOptions}
           onClose={() => setIsAdding(false)}
           onSubmit={async (expense, receiptFiles, receiptNotes) => {
@@ -344,6 +356,8 @@ export default function ExpensesPage() {
           events={eventNames}
           expenseIdPreview={editingExpense.id}
           people={peopleNames}
+          peopleRecords={people.map((person) => ({ id: person.id, fullName: person.fullName }))}
+          eventRecords={events.map((event) => ({ id: event.id, eventName: event.eventName }))}
           costCenters={costCenterOptions}
           onClose={() => setEditingExpense(null)}
           onSubmit={async (expense, receiptFiles, receiptNotes) => {

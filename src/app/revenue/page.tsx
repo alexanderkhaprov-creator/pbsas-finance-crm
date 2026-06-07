@@ -6,6 +6,8 @@ import { useFinanceData } from "@/components/finance-data-provider";
 import { PageHeader } from "@/components/page-header";
 import { RecordFormModal } from "@/components/record-form-modal";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { getLicenseRevenueSummary } from "@/lib/license-revenue";
+import { parseMoneyInput } from "@/lib/money-utils";
 import { currencies, expenseLinkTypes } from "@/lib/options";
 import type { Revenue } from "@/types";
 
@@ -25,14 +27,50 @@ const emptyRevenue: Revenue = {
 };
 
 export default function RevenuePage() {
-  const { events, costCenters, documents, revenues, addRevenue, updateRevenue, deleteRevenue } = useFinanceData();
+  const { events, costCenters, documents, revenues, licenseApplications, addRevenue, updateRevenue, deleteRevenue } = useFinanceData();
   const [editing, setEditing] = useState<Revenue | null>(null);
   const eventNames = events.map((event) => event.eventName);
   const costCenterNames = costCenters.filter((costCenter) => costCenter.status !== "Archived").map((costCenter) => costCenter.name);
+  const licenseRevenue = getLicenseRevenueSummary(licenseApplications);
 
   return (
     <>
       <PageHeader title="Revenue" description="Future-ready revenue register for sponsorship, ticketing, invoices, and event income." />
+      <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
+        <h3 className="text-base font-semibold text-ink">Auto-Calculated License Revenue</h3>
+        <p className="mt-1 text-sm text-steel">Calculated from confirmed paid license applications. Manual revenue records remain separate.</p>
+        <div className="mt-4 grid gap-4 lg:grid-cols-3">
+          <SummaryCard label="Total license revenue" value={formatCurrency(licenseRevenue.totalRevenue)} detail={`${licenseRevenue.paidApplications.length} paid applications`} />
+          <div className="rounded border border-black/10 bg-[#f7f7f5] p-4 lg:col-span-2">
+            <h4 className="text-sm font-semibold uppercase tracking-[0.12em] text-steel">By paid-to destination</h4>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              {["UAE Boxing Federation", "UAE Athletic Commission", "PBSAS", "Other"].map((destination) => (
+                <div className="flex items-center justify-between gap-3 rounded bg-white px-3 py-2 text-sm" key={destination}>
+                  <span className="text-steel">{destination}</span>
+                  <span className="font-semibold text-ink">{formatCurrency(licenseRevenue.byPaidTo[destination] ?? 0)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[720px] text-left text-sm">
+            <thead className="bg-[#f1f1ee] text-xs uppercase tracking-[0.12em] text-steel">
+              <tr>{["License category", "Paid applications", "Average fee", "Total income"].map((heading) => <th className="px-4 py-3 font-semibold" key={heading}>{heading}</th>)}</tr>
+            </thead>
+            <tbody className="divide-y divide-black/10">
+              {licenseRevenue.byCategory.map((row) => (
+                <tr key={row.category}>
+                  <td className="px-4 py-4 font-medium text-ink">{row.category}</td>
+                  <td className="px-4 py-4 text-steel">{row.paidCount}</td>
+                  <td className="px-4 py-4 text-steel">{formatCurrency(row.feeAmount)}</td>
+                  <td className="px-4 py-4 font-semibold text-ink">{formatCurrency(row.totalIncome)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
       <DataTable
         addLabel="Add revenue"
         columns={[
@@ -76,7 +114,7 @@ export default function RevenuePage() {
           ]}
           onClose={() => setEditing(null)}
           onSubmit={async (revenue) => {
-            const normalized = { ...revenue, amount: Number(revenue.amount) };
+            const normalized = { ...revenue, amount: typeof revenue.amount === "number" ? revenue.amount : parseMoneyInput(String(revenue.amount)) };
             if (normalized.id) {
               await updateRevenue(normalized);
             } else {
@@ -89,5 +127,15 @@ export default function RevenuePage() {
         />
       ) : null}
     </>
+  );
+}
+
+function SummaryCard({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="rounded border border-black/10 bg-[#f7f7f5] p-4">
+      <p className="text-sm text-steel">{label}</p>
+      <p className="mt-2 text-2xl font-semibold text-ink">{value}</p>
+      <p className="mt-1 text-xs text-steel">{detail}</p>
+    </div>
   );
 }

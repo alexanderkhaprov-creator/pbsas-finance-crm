@@ -5,6 +5,7 @@ import { Copy, Plus, Send, Trash2 } from "lucide-react";
 import { useFinanceData } from "@/components/finance-data-provider";
 import { PageHeader } from "@/components/page-header";
 import { currencies, expenseCategories } from "@/lib/options";
+import { parseMoneyInput } from "@/lib/money-utils";
 import type { CurrencyCode, ExpenseCategory } from "@/types";
 
 type BatchRow = {
@@ -81,7 +82,7 @@ export default function BatchEntryPage() {
         costCenter: row.costCenter,
         category: row.category,
         description: row.description,
-        amount: Number(row.amount),
+        amount: typeof row.amount === "number" ? row.amount : parseMoneyInput(String(row.amount)),
         currency: row.currency,
         paymentMethod: row.paymentMethod,
         vendor: "",
@@ -148,7 +149,7 @@ export default function BatchEntryPage() {
                   <td className="px-3 py-3"><select className="w-full rounded border border-black/10 px-2 py-2 text-ink" value={row.event} onChange={(event) => updateRow(row.rowId, { event: event.target.value })}>{eventNames.map((eventName) => <option key={eventName} value={eventName}>{eventName}</option>)}</select></td>
                   <td className="px-3 py-3"><select className="w-full rounded border border-black/10 px-2 py-2 text-ink" value={row.category} onChange={(event) => updateRow(row.rowId, { category: event.target.value as ExpenseCategory })}>{expenseCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select></td>
                   <td className="px-3 py-3"><input className="w-full rounded border border-black/10 px-2 py-2 text-ink" value={row.description} onChange={(event) => updateRow(row.rowId, { description: event.target.value })} /></td>
-                  <td className="px-3 py-3"><input className="w-full rounded border border-black/10 px-2 py-2 text-ink" min="0" step="0.01" type="number" value={row.amount} onChange={(event) => updateRow(row.rowId, { amount: Number(event.target.value) })} /></td>
+                  <td className="px-3 py-3"><input className="w-full rounded border border-black/10 px-2 py-2 text-ink" inputMode="decimal" value={row.amount} onChange={(event) => updateRow(row.rowId, { amount: parseMoneyInput(event.target.value) })} /></td>
                   <td className="px-3 py-3"><select className="w-full rounded border border-black/10 px-2 py-2 text-ink" value={row.currency} onChange={(event) => updateRow(row.rowId, { currency: event.target.value as CurrencyCode })}>{currencies.map((currency) => <option key={currency} value={currency}>{currency}</option>)}</select></td>
                   <td className="px-3 py-3"><input className="w-full rounded border border-black/10 px-2 py-2 text-ink" value={row.paymentMethod} onChange={(event) => updateRow(row.rowId, { paymentMethod: event.target.value })} /></td>
                   <td className="px-3 py-3"><input checked={row.reimbursable} className="h-5 w-5 accent-gold" type="checkbox" onChange={(event) => updateRow(row.rowId, { reimbursable: event.target.checked })} /></td>

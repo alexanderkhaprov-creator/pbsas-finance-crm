@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Plus } from "lucide-react";
 import { useFinanceData } from "@/components/finance-data-provider";
 import { formatCurrency } from "@/lib/format";
+import { parseMoneyInput } from "@/lib/money-utils";
 import { currencies, expenseCategories } from "@/lib/options";
 import type { CurrencyCode, ExpenseCategory } from "@/types";
 
@@ -91,7 +92,7 @@ export function QuickExpenseEntry({ compact = false }: { compact?: boolean }) {
         <select className="rounded border border-black/10 px-3 py-2 text-sm text-ink" value={category} onChange={(event) => setCategory(event.target.value as ExpenseCategory)}>
           {expenseCategories.map((item) => <option key={item} value={item}>{item}</option>)}
         </select>
-        <input className="rounded border border-black/10 px-3 py-2 text-sm text-ink" min="0" step="0.01" type="number" value={amount} onChange={(event) => setAmount(Number(event.target.value))} placeholder="Amount" />
+        <input className="rounded border border-black/10 px-3 py-2 text-sm text-ink" inputMode="decimal" value={amount || ""} onChange={(event) => setAmount(parseMoneyInput(event.target.value))} placeholder="Amount" />
         <select className="rounded border border-black/10 px-3 py-2 text-sm text-ink" value={currency} onChange={(event) => setCurrency(event.target.value as CurrencyCode)}>
           {currencies.map((item) => <option key={item} value={item}>{item}</option>)}
         </select>

@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { formatCurrency } from "@/lib/format";
 import { getNextSequentialId } from "@/lib/id-utils";
+import { parseMoneyInput } from "@/lib/money-utils";
 import { currencies, licenseCategories } from "@/lib/options";
 import type { LicenseFeeScheduleItem } from "@/types";
 
@@ -41,7 +42,7 @@ export default function LicenseFeeSchedulePage() {
         <h3 className="text-base font-semibold text-ink">Add Fee Category</h3>
         <div className="mt-4 grid gap-3 md:grid-cols-4 xl:grid-cols-8">
           <select className="rounded border border-black/10 px-3 py-2 text-sm text-ink" value={draft.category} onChange={(event) => setDraft((current) => ({ ...current, category: event.target.value as LicenseFeeScheduleItem["category"] }))}>{licenseCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select>
-          <input className="rounded border border-black/10 px-3 py-2 text-sm text-ink" type="number" value={draft.amount} onChange={(event) => setDraft((current) => ({ ...current, amount: Number(event.target.value) }))} />
+          <input className="rounded border border-black/10 px-3 py-2 text-sm text-ink" inputMode="decimal" value={draft.amount} onChange={(event) => setDraft((current) => ({ ...current, amount: parseMoneyInput(event.target.value) }))} />
           <select className="rounded border border-black/10 px-3 py-2 text-sm text-ink" value={draft.currency} onChange={(event) => setDraft((current) => ({ ...current, currency: event.target.value as LicenseFeeScheduleItem["currency"] }))}>{currencies.map((currency) => <option key={currency} value={currency}>{currency}</option>)}</select>
           <input className="rounded border border-black/10 px-3 py-2 text-sm text-ink" value={draft.validityPeriod} onChange={(event) => setDraft((current) => ({ ...current, validityPeriod: event.target.value }))} />
           <input className="rounded border border-black/10 px-3 py-2 text-sm text-ink" type="date" value={draft.effectiveDate} onChange={(event) => setDraft((current) => ({ ...current, effectiveDate: event.target.value }))} />

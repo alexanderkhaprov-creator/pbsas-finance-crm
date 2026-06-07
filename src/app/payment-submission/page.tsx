@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { useFinanceData } from "@/components/finance-data-provider";
 import { formatCurrency } from "@/lib/format";
+import { parseMoneyInput } from "@/lib/money-utils";
 import type { LicenseApplication, LicensePaymentMethod } from "@/types";
 
 const draftStorageKey = "pbsas_pending_license_application_draft_v1";
@@ -36,8 +37,8 @@ export default function PaymentSubmissionPage() {
     const saved = await addLicenseApplication({
       ...draft,
       paymentMethod,
-      amountPaid: Number(amountPaid),
-      totalFeesPaid: Number(amountPaid),
+      amountPaid: parseMoneyInput(amountPaid),
+      totalFeesPaid: parseMoneyInput(amountPaid),
       paymentDate,
       paymentReference,
       paymentProofFileName,
@@ -84,7 +85,7 @@ export default function PaymentSubmissionPage() {
                 {["Bank Transfer", "Cash", "Other"].map((method) => <option key={method} value={method}>{method}</option>)}
               </select>
             </label>
-            <Input label="Amount Paid" type="number" value={amountPaid} onChange={setAmountPaid} />
+            <Input inputMode="decimal" label="Amount Paid" value={amountPaid} onChange={setAmountPaid} />
             <Input label="Payment Date" type="date" value={paymentDate} onChange={setPaymentDate} />
             <Input label="Reference Number" value={paymentReference} onChange={setPaymentReference} />
             <label className="text-sm font-medium text-steel md:col-span-2">
@@ -104,11 +105,11 @@ export default function PaymentSubmissionPage() {
   );
 }
 
-function Input({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
+function Input({ label, value, onChange, type = "text", inputMode }: { label: string; value: string; onChange: (value: string) => void; type?: string; inputMode?: "decimal" }) {
   return (
     <label className="text-sm font-medium text-steel">
       {label}
-      <input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input className="mt-1 w-full rounded border border-black/10 px-3 py-2 text-ink" inputMode={inputMode} type={type} value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }

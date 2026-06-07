@@ -1,35 +1,38 @@
 import type { ConfidentialityLevel, CostCenterType, CurrencyCode, DocumentLinkedModule, DocumentType, DocumentVerificationStatus, ExpenseCategory, ExpenseLinkType, LicenseApplicationOrigin, LicenseApplicationSource, LicenseCategory, LicenseDocumentVerificationStatus, LicenseIntakeStatus, LicenseInvoiceStatus, LicensePaidTo, LicensePaymentMethod, LicensePaymentStatus, LicenseReviewStatus, LicenseStatus, ReconciliationStatus, ReimbursementStatus, StampStatus } from "@/types";
 
 export const expenseCategories: ExpenseCategory[] = [
-  "Venue",
-  "Transport",
+  "Travel",
   "Accommodation",
   "Food & Beverage",
-  "Equipment",
-  "Licensing",
+  "Fuel",
   "Medical",
-  "Staff Payment",
+  "Licensing Operations",
+  "Event Operations",
+  "Officials",
+  "Office & Administration",
+  "Equipment",
   "Marketing",
-  "Production",
-  "Travel",
-  "Hotel",
-  "Commission Operations",
-  "WBC Operations",
-  "Federation Operations",
-  "Miscellaneous"
+  "Professional Services",
+  "Workshop",
+  "General Operations",
+  "Other"
 ];
 
 export const currencies: CurrencyCode[] = ["AED", "USD", "EUR", "GBP", "RUB"];
 
 export const expenseLinkTypes: ExpenseLinkType[] = ["Event", "Workshop", "Tournament", "Meeting", "General Operations"];
 
-export const costCenterTypes: CostCenterType[] = ["Event", "Workshop", "Department", "Federation Operations", "WBC Operations", "Licensing", "General Admin"];
+export const costCenterTypes: CostCenterType[] = ["Event", "Workshop", "Department", "Federation Operations", "WBC Operations", "Licensing", "General Admin", "Athletic Commission Operations"];
 
-export const reimbursementLiabilityStatuses: Exclude<ReimbursementStatus, "Not Reimbursable" | "Pending" | "Approved" | "Reimbursed">[] = [
+export const reimbursementLiabilityStatuses: ReimbursementStatus[] = [
+  "Outstanding",
   "Pending Review",
   "Approved for Reimbursement",
+  "Approved",
   "Partially Reimbursed",
   "Fully Reimbursed",
+  "Disputed",
+  "Closed",
   "Rejected",
   "Deferred"
 ];
@@ -83,7 +86,7 @@ export const licensePaymentMethods: LicensePaymentMethod[] = ["Cash", "Bank Tran
 
 export const licensePaidToOptions: LicensePaidTo[] = ["UAE Boxing Federation", "UAE Athletic Commission", "PBSAS", "Other"];
 
-export const licenseReviewStatuses: LicenseReviewStatus[] = ["New", "Awaiting Payment", "Awaiting Payment Verification", "Pending Documents", "Pending Payment", "Eligible For Chief Review", "Under Chief Review", "Pending Chief Review", "Approved by Chief", "Rejected", "Ready for Stamp", "License Issued"];
+export const licenseReviewStatuses: LicenseReviewStatus[] = ["New", "Awaiting Payment", "Awaiting Payment Verification", "Pending Review - Payment Section", "Pending Documents", "Pending Payment", "Eligible For Chief Review", "Under Chief Review", "Pending Chief Review", "Approved by Chief", "Rejected", "Ready for Stamp", "License Issued"];
 
 export const stampStatuses: StampStatus[] = ["Not Available Yet", "Awaiting Stamp", "Stamped", "Not Required"];
 

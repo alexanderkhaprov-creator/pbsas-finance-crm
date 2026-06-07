@@ -8,8 +8,16 @@ import { StatusBadge } from "@/components/status-badge";
 import { formatDate } from "@/lib/format";
 import type { AuditAction, AuditModule } from "@/types";
 
-const modules: AuditModule[] = ["People", "Events", "Cost Centers", "Receipt Intake", "Expenses", "Reimbursements", "Revenue", "Data Management", "Batch Entry", "Document Register", "License Applications", "Application Intake"];
-const actions: AuditAction[] = ["Created", "Updated", "Deleted", "Status Changed", "Converted", "Imported", "Exported", "Reset", "Application created", "Application updated", "Application submitted", "Fee schedule created", "Fee schedule updated", "Fee schedule archived/restored", "Document requirement created", "Document requirement updated", "Document requirement archived/restored", "Invoice generated", "Invoice sent", "Payment recorded", "Payment waived", "Payment Waived", "Payment status changed", "Payment destination changed", "Payment Instructions Viewed", "Payment Submitted", "Payment Verified", "Payment Rejected", "Existing License Uploaded", "Returning Applicant Identified", "Document Uploaded", "Document Marked Received", "Document Verified", "Document Needs Clarification", "Document Rejected", "More Documents Requested", "Receipt Generated", "Receipt Downloaded", "Receipt Cancelled", "License Draft Generated", "License Previewed", "License Printed / Downloaded", "Document status changed", "Review status changed", "Chief review started", "Chief approval recorded", "Chief approval granted", "Application blocked by missing payment", "Internal UAEAC section updated", "License marked ready for stamp", "License issued", "Application rejected", "Application Rejected"];
+const modules: AuditModule[] = ["People", "Events", "Cost Centers", "Receipt Intake", "Expenses", "Reimbursements", "Revenue", "Data Management", "Batch Entry", "Document Register", "License Applications", "Application Intake", "Application Import"];
+const actions: AuditAction[] = ["Created", "Updated", "Deleted", "Status Changed", "Converted", "Imported", "Exported", "Reset", "Expense Created", "Expense Submitted", "Expense Approved", "Expense Rejected", "Expense Closed", "Reimbursement Created", "Reimbursement Approved", "Reimbursement Settled", "Reimbursement Proof Uploaded", "Reimbursement Marked Paid", "Faulty Test Expense Removed", "Treasury Settlement Recorded", "Application created", "Application updated", "Application submitted", "Declaration Accepted", "Application Import Created", "Application Created From OCR Import", "Expense Created From Receipt OCR", "Fee schedule created", "Fee schedule updated", "Fee schedule archived/restored", "Document requirement created", "Document requirement updated", "Document requirement archived/restored", "Invoice generated", "Invoice sent", "Payment recorded", "Payment waived", "Payment Waived", "Payment status changed", "Payment destination changed", "Payment Instructions Viewed", "Payment Submitted", "Payment Verified", "Payment Rejected", "Payment Proof Rejected", "Payment Section Reviewed", "Payment Marked Cash Paid", "Payment Marked Manually Paid", "Application Manually Marked Ready For Chief Review", "Core Document Verified", "License Issue Blocked By Missing Core Document", "Existing License Uploaded", "Returning Applicant Identified", "Document Uploaded", "Document Marked Received", "Document Verified", "Document Needs Clarification", "Document Rejected", "More Documents Requested", "Receipt Generated", "Receipt Downloaded", "Receipt Cancelled", "License Draft Generated", "License Previewed", "License Printed / Downloaded", "Document status changed", "Review status changed", "Chief review started", "Chief approval recorded", "Chief approval granted", "Application blocked by missing payment", "Internal UAEAC section updated", "License marked ready for stamp", "License issued", "Application rejected", "Application Rejected"];
+
+function displayModule(module: AuditModule) {
+  return module === "Receipt Intake" ? "Receipt Register" : module;
+}
+
+function displayAction(action: AuditAction) {
+  return action === "Treasury Settlement Recorded" ? "Reimbursement Payment Recorded" : action;
+}
 
 export default function AuditTrailPage() {
   const { auditLogs } = useFinanceData();
@@ -53,11 +61,11 @@ export default function AuditTrailPage() {
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
             <select className="rounded border border-black/10 bg-white px-3 py-2 text-sm text-ink" value={moduleFilter} onChange={(event) => setModuleFilter(event.target.value)}>
               <option value="">Module</option>
-              {modules.map((module) => <option key={module} value={module}>{module}</option>)}
+              {modules.map((module) => <option key={module} value={module}>{displayModule(module)}</option>)}
             </select>
             <select className="rounded border border-black/10 bg-white px-3 py-2 text-sm text-ink" value={actionFilter} onChange={(event) => setActionFilter(event.target.value)}>
               <option value="">Action</option>
-              {actions.map((action) => <option key={action} value={action}>{action}</option>)}
+              {actions.map((action) => <option key={action} value={action}>{displayAction(action)}</option>)}
             </select>
             <select className="rounded border border-black/10 bg-white px-3 py-2 text-sm text-ink" value={changedByFilter} onChange={(event) => setChangedByFilter(event.target.value)}>
               <option value="">Changed by</option>
@@ -77,7 +85,7 @@ export default function AuditTrailPage() {
                 <tr className="align-top hover:bg-[#fafaf8]" key={log.id}>
                   <td className="px-4 py-4 font-medium text-ink">{log.id}</td>
                   <td className="px-4 py-4 text-steel">{formatDate(log.timestamp)} {log.timestamp.slice(11, 16)}</td>
-                  <td className="px-4 py-4 text-steel">{log.module}</td>
+                  <td className="px-4 py-4 text-steel">{displayModule(log.module)}</td>
                   <td className="px-4 py-4 font-medium text-ink">{log.recordId}</td>
                   <td className="px-4 py-4 text-steel">{log.recordLabel}</td>
                   <td className="px-4 py-4"><StatusBadge value={log.action} /></td>
