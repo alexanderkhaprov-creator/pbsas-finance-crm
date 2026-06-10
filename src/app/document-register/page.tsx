@@ -8,7 +8,7 @@ import { RecordFormModal } from "@/components/record-form-modal";
 import { StatusBadge } from "@/components/status-badge";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { parseMoneyInput } from "@/lib/money-utils";
-import { confidentialityLevels, currencies, documentLinkedModules, documentTypes, documentVerificationStatuses } from "@/lib/options";
+import { confidentialityLevels, currencies, documentApprovalStatuses, documentLinkedModules, documentTypes, documentVerificationStatuses, stampStatuses } from "@/lib/options";
 import type { SupportingDocument } from "@/types";
 
 const emptyDocument: SupportingDocument = {
@@ -24,12 +24,21 @@ const emptyDocument: SupportingDocument = {
   currency: "AED",
   amount: 0,
   verificationStatus: "Unchecked",
+  approvalStatus: "Draft",
+  stampStatus: "Not Available Yet",
+  issuedDate: "",
+  approvedBy: "",
+  approvalTitle: "",
+  approvalDate: "",
+  rejectionReason: "",
+  stampedBy: "",
+  stampDate: "",
   confidentialityLevel: "Finance Only",
   notes: ""
 };
 
 export default function DocumentRegisterPage() {
-  const { documents, addDocument, updateDocument, deleteDocument } = useFinanceData();
+  const { documents, stampSettings, addDocument, updateDocument, deleteDocument } = useFinanceData();
   const [editing, setEditing] = useState<SupportingDocument | null>(null);
 
   return (
@@ -49,6 +58,24 @@ export default function DocumentRegisterPage() {
           { key: "receivedFrom", header: "Received from", render: (row) => row.receivedFrom },
           { key: "amount", header: "Amount", render: (row) => row.amount ? formatCurrency(row.amount, row.currency) : "Not applicable" },
           { key: "verificationStatus", header: "Verification", render: (row) => <StatusBadge value={row.verificationStatus} /> },
+          { key: "approvalStatus", header: "Approval", render: (row) => <StatusBadge value={row.approvalStatus ?? "Draft"} /> },
+          { key: "stampStatus", header: "Stamp", render: (row) => <StampCell approvalStatus={row.approvalStatus} stampStatus={row.stampStatus} /> },
+          {
+            key: "certify",
+            header: "Certification",
+            render: (row) => (
+              <button
+                className="rounded border border-black/10 px-3 py-2 text-xs font-semibold text-steel hover:border-gold hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={stampSettings.stampAvailable !== "Yes"}
+                onClick={() => void updateDocument({ ...row, approvalStatus: "Stamped / Certified", stampStatus: "Stamped", stampedBy: stampSettings.defaultStampedBy, stampDate: new Date().toISOString().slice(0, 10), notes: `${row.notes ? `${row.notes}\n` : ""}Stamp applied: ${stampSettings.stampDisplayLabel || stampSettings.stampName}` })}
+              >
+                Apply Stamp
+              </button>
+            )
+          },
+          { key: "issuedDate", header: "Issued date", render: (row) => row.issuedDate ? formatDate(row.issuedDate) : "Not issued" },
+          { key: "approvedBy", header: "Approved by", render: (row) => row.approvedBy || "Not approved" },
+          { key: "stampedBy", header: "Stamped by", render: (row) => row.stampedBy || "Not stamped" },
           { key: "confidentialityLevel", header: "Confidentiality", render: (row) => <StatusBadge value={row.confidentialityLevel} /> },
           { key: "notes", header: "Notes", render: (row) => row.notes }
         ]}
@@ -56,6 +83,8 @@ export default function DocumentRegisterPage() {
           { key: "documentType", label: "Document type", options: documentTypes, getValue: (row) => row.documentType },
           { key: "linkedModule", label: "Linked module", options: documentLinkedModules, getValue: (row) => row.linkedModule },
           { key: "verificationStatus", label: "Verification", options: documentVerificationStatuses, getValue: (row) => row.verificationStatus },
+          { key: "approvalStatus", label: "Approval", options: documentApprovalStatuses, getValue: (row) => row.approvalStatus ?? "Draft" },
+          { key: "stampStatus", label: "Stamp", options: stampStatuses, getValue: (row) => row.stampStatus ?? "Not Available Yet" },
           { key: "confidentialityLevel", label: "Confidentiality", options: confidentialityLevels, getValue: (row) => row.confidentialityLevel }
         ]}
         getSearchText={(row) => Object.values(row).join(" ")}
@@ -79,6 +108,15 @@ export default function DocumentRegisterPage() {
             { key: "currency", label: "Currency", type: "select", options: currencies },
             { key: "amount", label: "Amount if applicable", type: "number" },
             { key: "verificationStatus", label: "Verification status", type: "select", options: documentVerificationStatuses },
+            { key: "approvalStatus", label: "Approval status", type: "select", options: documentApprovalStatuses },
+            { key: "stampStatus", label: "Stamp status", type: "select", options: stampStatuses },
+            { key: "issuedDate", label: "Issued date", type: "date" },
+            { key: "approvedBy", label: "Approved by" },
+            { key: "approvalTitle", label: "Approval title" },
+            { key: "approvalDate", label: "Approval date", type: "date" },
+            { key: "stampedBy", label: "Stamped by" },
+            { key: "stampDate", label: "Stamp date", type: "date" },
+            { key: "rejectionReason", label: "Rejection reason" },
             { key: "confidentialityLevel", label: "Confidentiality level", type: "select", options: confidentialityLevels },
             { key: "notes", label: "Notes", type: "textarea" }
           ]}
@@ -97,5 +135,17 @@ export default function DocumentRegisterPage() {
         />
       ) : null}
     </>
+  );
+}
+
+function StampCell({ approvalStatus, stampStatus }: { approvalStatus?: string; stampStatus?: string }) {
+  const stamped = approvalStatus === "Stamped / Certified" || approvalStatus === "Issued" || stampStatus === "Stamped";
+  if (!stamped) return <StatusBadge value={stampStatus ?? "Not Available Yet"} />;
+  return (
+    <div className="flex items-center gap-2">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img alt="UAEAC Red Official Stamp" className="h-10 w-10 object-contain" src="/uaeac-stamp-red.jpeg" />
+      <StatusBadge value={approvalStatus === "Issued" ? "Issued" : "Stamped / Certified"} />
+    </div>
   );
 }

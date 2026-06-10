@@ -6,9 +6,10 @@ import { useFinanceData } from "@/components/finance-data-provider";
 import { PageHeader } from "@/components/page-header";
 import { RecordFormModal } from "@/components/record-form-modal";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { getFinancialReporting } from "@/lib/financial-reporting";
 import { getLicenseRevenueSummary } from "@/lib/license-revenue";
 import { parseMoneyInput } from "@/lib/money-utils";
-import { currencies, expenseLinkTypes } from "@/lib/options";
+import { currencies, expenseLinkTypes, revenueCategories } from "@/lib/options";
 import type { Revenue } from "@/types";
 
 const emptyRevenue: Revenue = {
@@ -18,8 +19,12 @@ const emptyRevenue: Revenue = {
   linkType: "Event",
   costCenterId: "",
   costCenter: "",
+  revenueCategory: "Other Revenue",
   source: "",
   amount: 0,
+  expectedRevenue: 0,
+  receivedRevenue: 0,
+  outstandingRevenue: 0,
   currency: "AED",
   paymentMethod: "",
   invoiceReference: "",
@@ -27,11 +32,12 @@ const emptyRevenue: Revenue = {
 };
 
 export default function RevenuePage() {
-  const { events, costCenters, documents, revenues, licenseApplications, addRevenue, updateRevenue, deleteRevenue } = useFinanceData();
+  const { events, expenses, costCenters, documents, revenues, licenseApplications, addRevenue, updateRevenue, deleteRevenue } = useFinanceData();
   const [editing, setEditing] = useState<Revenue | null>(null);
   const eventNames = events.map((event) => event.eventName);
   const costCenterNames = costCenters.filter((costCenter) => costCenter.status !== "Archived").map((costCenter) => costCenter.name);
   const licenseRevenue = getLicenseRevenueSummary(licenseApplications);
+  const financialReporting = getFinancialReporting({ expenses, revenues, licenseApplications });
 
   return (
     <>
@@ -47,7 +53,7 @@ export default function RevenuePage() {
               {["UAE Boxing Federation", "UAE Athletic Commission", "PBSAS", "Other"].map((destination) => (
                 <div className="flex items-center justify-between gap-3 rounded bg-white px-3 py-2 text-sm" key={destination}>
                   <span className="text-steel">{destination}</span>
-                  <span className="font-semibold text-ink">{formatCurrency(licenseRevenue.byPaidTo[destination] ?? 0)}</span>
+                  <span className="min-w-0 overflow-hidden whitespace-nowrap text-[clamp(0.8rem,1vw,1rem)] font-semibold text-ink tabular-nums">{formatCurrency(licenseRevenue.byPaidTo[destination] ?? 0)}</span>
                 </div>
               ))}
             </div>
@@ -71,6 +77,16 @@ export default function RevenuePage() {
           </table>
         </div>
       </section>
+      <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
+        <h3 className="text-base font-semibold text-ink">Revenue Receivables</h3>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <SummaryCard label="Expected Revenue" value={formatCurrency(financialReporting.expectedRevenue)} detail="Invoices and manual expected revenue" />
+          <SummaryCard label="Received Revenue" value={formatCurrency(financialReporting.receivedRevenue)} detail="Confirmed collections" />
+          <SummaryCard label="Outstanding Revenue" value={formatCurrency(financialReporting.outstandingRevenue)} detail="Expected minus received" />
+          <SummaryCard label="Collection Rate" value={`${financialReporting.collectionRate.toFixed(1)}%`} detail="Received / expected" />
+          <SummaryCard label="Net Position" value={formatCurrency(financialReporting.netPosition)} detail={financialReporting.netPosition >= 0 ? "Net surplus" : "Net deficit"} />
+        </div>
+      </section>
       <DataTable
         addLabel="Add revenue"
         columns={[
@@ -78,8 +94,11 @@ export default function RevenuePage() {
           { key: "event", header: "Event", render: (row) => <span className="font-medium text-ink">{row.event}</span> },
           { key: "costCenter", header: "Cost center", render: (row) => row.costCenter || "No cost center" },
           { key: "linkType", header: "Operational link", render: (row) => row.linkType ?? "Event" },
+          { key: "revenueCategory", header: "Category", render: (row) => row.revenueCategory || "Other Revenue" },
           { key: "source", header: "Source", render: (row) => row.source },
-          { key: "amount", header: "Amount", render: (row) => <span className="font-semibold text-ink">{formatCurrency(row.amount, row.currency)}</span> },
+          { key: "expectedRevenue", header: "Expected", render: (row) => formatCurrency(row.expectedRevenue ?? row.amount, row.currency) },
+          { key: "receivedRevenue", header: "Received", render: (row) => <span className="font-semibold text-ink">{formatCurrency(row.receivedRevenue ?? row.amount, row.currency)}</span> },
+          { key: "outstandingRevenue", header: "Outstanding", render: (row) => formatCurrency(row.outstandingRevenue ?? Math.max(0, (row.expectedRevenue ?? row.amount) - (row.receivedRevenue ?? row.amount)), row.currency) },
           { key: "currency", header: "Currency", render: (row) => row.currency },
           { key: "paymentMethod", header: "Payment method", render: (row) => row.paymentMethod },
           { key: "invoiceReference", header: "Invoice reference", render: (row) => row.invoiceReference },
@@ -89,6 +108,7 @@ export default function RevenuePage() {
         filters={[
           { key: "event", label: "Event", options: eventNames, getValue: (row) => row.event },
           { key: "costCenter", label: "Cost center", options: costCenterNames, getValue: (row) => row.costCenter ?? "" },
+          { key: "revenueCategory", label: "Category", options: revenueCategories, getValue: (row) => row.revenueCategory ?? "Other Revenue" },
           { key: "source", label: "Source", options: [...new Set(revenues.map((item) => item.source))], getValue: (row) => row.source }
         ]}
         getSearchText={(row) => Object.values(row).join(" ")}
@@ -105,8 +125,10 @@ export default function RevenuePage() {
             { key: "event", label: "Event", type: "select", options: eventNames },
             { key: "costCenter", label: "Cost center", type: "select", options: costCenterNames },
             { key: "linkType", label: "Operational link", type: "select", options: expenseLinkTypes },
+            { key: "revenueCategory", label: "Revenue category", type: "select", options: revenueCategories },
             { key: "source", label: "Source" },
-            { key: "amount", label: "Amount", type: "number" },
+            { key: "expectedRevenue", label: "Expected Revenue", type: "number" },
+            { key: "receivedRevenue", label: "Received Revenue", type: "number" },
             { key: "currency", label: "Currency", type: "select", options: currencies },
             { key: "paymentMethod", label: "Payment method" },
             { key: "invoiceReference", label: "Invoice reference" },
@@ -114,7 +136,15 @@ export default function RevenuePage() {
           ]}
           onClose={() => setEditing(null)}
           onSubmit={async (revenue) => {
-            const normalized = { ...revenue, amount: typeof revenue.amount === "number" ? revenue.amount : parseMoneyInput(String(revenue.amount)) };
+            const expectedRevenue = typeof revenue.expectedRevenue === "number" ? revenue.expectedRevenue : parseMoneyInput(String(revenue.expectedRevenue ?? revenue.amount));
+            const receivedRevenue = typeof revenue.receivedRevenue === "number" ? revenue.receivedRevenue : parseMoneyInput(String(revenue.receivedRevenue ?? revenue.amount));
+            const normalized = {
+              ...revenue,
+              amount: receivedRevenue,
+              expectedRevenue,
+              receivedRevenue,
+              outstandingRevenue: Math.max(0, expectedRevenue - receivedRevenue)
+            };
             if (normalized.id) {
               await updateRevenue(normalized);
             } else {
@@ -132,10 +162,10 @@ export default function RevenuePage() {
 
 function SummaryCard({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className="rounded border border-black/10 bg-[#f7f7f5] p-4">
-      <p className="text-sm text-steel">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-ink">{value}</p>
-      <p className="mt-1 text-xs text-steel">{detail}</p>
+    <div className="min-w-0 overflow-hidden rounded border border-black/10 bg-[#f7f7f5] p-4">
+      <p className="min-w-0 break-words text-sm text-steel">{label}</p>
+      <p className="mt-2 min-w-0 max-w-full overflow-hidden whitespace-nowrap text-[clamp(0.8rem,1vw,1.5rem)] font-semibold leading-tight text-ink tabular-nums">{value}</p>
+      <p className="mt-1 min-w-0 break-words text-xs text-steel">{detail}</p>
     </div>
   );
 }

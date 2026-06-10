@@ -60,6 +60,7 @@ export type ExpenseCategory =
 
 export type CurrencyCode = "AED" | "USD" | "EUR" | "GBP" | "RUB";
 export type ExpenseLinkType = "Event" | "Workshop" | "Tournament" | "Meeting" | "General Operations";
+export type RevenueCategory = "License Revenue" | "Workshop Revenue" | "Event Revenue" | "Sanction Revenue" | "Membership Revenue" | "Sponsorship Revenue" | "Donation Revenue" | "Other Revenue";
 
 export type CostCenterType = "Event" | "Workshop" | "Department" | "Federation Operations" | "WBC Operations" | "Licensing" | "General Admin" | "Athletic Commission Operations";
 export type CostCenterStatus = "Active" | "Closed" | "Archived";
@@ -170,6 +171,19 @@ export type AuditAction =
   | "Reimbursement Proof Uploaded"
   | "Reimbursement Marked Paid"
   | "Faulty Test Expense Removed"
+  | "Revenue Created"
+  | "Revenue Updated"
+  | "Revenue Deleted"
+  | "Document Submitted for Approval"
+  | "Document Approved"
+  | "Document Rejected"
+  | "Stamp Applied"
+  | "Document Issued"
+  | "Document Cancelled"
+  | "License Stamped"
+  | "License Issued"
+  | "License Issued With Stamp"
+  | "Document Certified With Stamp"
   | "Treasury Settlement Recorded";
 export type DocumentType =
   | "Receipt"
@@ -189,6 +203,7 @@ export type DocumentType =
 export type DocumentLinkedModule = "Expense" | "Receipt" | "Reimbursement" | "Revenue" | "Event" | "Cost Center" | "Person" | "License Application" | "License/Application future use";
 export type DocumentVerificationStatus = "Unchecked" | "Verified" | "Needs Clarification" | "Rejected";
 export type ConfidentialityLevel = "Public/Internal" | "Finance Only" | "Board Only" | "Restricted";
+export type DocumentApprovalStatus = "Draft" | "Pending Approval" | "Approved Awaiting Stamp" | "Stamped / Certified" | "Issued" | "Rejected" | "Cancelled";
 
 export type AuditLog = {
   id: string;
@@ -216,6 +231,15 @@ export type SupportingDocument = {
   currency: CurrencyCode;
   amount: number;
   verificationStatus: DocumentVerificationStatus;
+  approvalStatus?: DocumentApprovalStatus;
+  stampStatus?: StampStatus;
+  issuedDate?: string;
+  approvedBy?: string;
+  approvalTitle?: string;
+  approvalDate?: string;
+  rejectionReason?: string;
+  stampedBy?: string;
+  stampDate?: string;
   confidentialityLevel: ConfidentialityLevel;
   notes: string;
 };
@@ -240,6 +264,8 @@ export type LicensePaymentMethod = "Cash" | "Bank Transfer" | "Card" | "Online P
 export type LicensePaidTo = "UAE Boxing Federation" | "UAE Athletic Commission" | "PBSAS" | "Other";
 export type LicenseReviewStatus = "New" | "Awaiting Payment" | "Awaiting Payment Verification" | "Pending Review - Payment Section" | "Pending Documents" | "Pending Payment" | "Eligible For Chief Review" | "Under Chief Review" | "Pending Chief Review" | "Approved by Chief" | "Rejected" | "Ready for Stamp" | "License Issued";
 export type StampStatus = "Not Available Yet" | "Awaiting Stamp" | "Stamped" | "Not Required";
+export type StampPosition = "Bottom Right" | "Bottom Center" | "Bottom Left" | "Near Signature" | "Custom";
+export type StampSize = "Small" | "Medium" | "Large";
 export type LicenseStatus = "Application Registered" | "Awaiting Payment" | "Awaiting Review" | "Approved Awaiting Stamp" | "Issued" | "Rejected" | "Expired" | "Suspended";
 export type LicenseInvoiceStatus = "Not Generated" | "Invoice Required" | "Draft" | "Generated" | "Invoice Sent" | "Sent" | "Paid" | "Cancelled" | "Waived";
 export type LicenseApplicationOrigin = "Historical Migration" | "New Application" | "Online Form" | "Online Application" | "Manual Entry";
@@ -500,6 +526,15 @@ export type LicenseReceipt = {
   receivedFor: string;
   notes: string;
   status: "Active" | "Cancelled";
+  approvalStatus?: DocumentApprovalStatus;
+  stampStatus?: StampStatus;
+  issuedDate?: string;
+  approvedBy?: string;
+  approvalTitle?: string;
+  approvalDate?: string;
+  rejectionReason?: string;
+  stampedBy?: string;
+  stampDate?: string;
   createdAt: string;
 };
 
@@ -512,6 +547,19 @@ export type GeneratedLicense = {
   dateIssued: string;
   expiryDate: string;
   stampStatus: StampStatus;
+  approvalStatus?: DocumentApprovalStatus;
+  approvedBy?: string;
+  approvalTitle?: string;
+  approvalDate?: string;
+  rejectionReason?: string;
+  stampedBy?: string;
+  stampDate?: string;
+  stampImageFileName?: string;
+  stampPosition?: StampPosition;
+  stampSize?: StampSize;
+  adminOverrideReason?: string;
+  issuedDate?: string;
+  notes?: string;
   issuedBy: string;
   issuedByTitle: string;
   printStatus: "Draft" | "Previewed" | "Printed";
@@ -522,7 +570,11 @@ export type StampSettings = {
   stampAvailable: "Yes" | "No";
   stampName: string;
   stampImageFileName: string;
+  stampDisplayLabel?: string;
+  stampPositionDefault?: StampPosition;
+  stampSize?: StampSize;
   defaultStampedBy: string;
+  defaultStampTitle?: string;
   stampNotes: string;
   updatedAt: string;
 };
@@ -745,8 +797,12 @@ export type Revenue = {
   id: string;
   revenueDate: string;
   event: string;
+  revenueCategory?: RevenueCategory | string;
   source: string;
   amount: number;
+  expectedRevenue?: number;
+  receivedRevenue?: number;
+  outstandingRevenue?: number;
   currency: CurrencyCode;
   paymentMethod: string;
   invoiceReference: string;

@@ -1,4 +1,4 @@
-import type { ConfidentialityLevel, CostCenterType, CurrencyCode, DocumentLinkedModule, DocumentType, DocumentVerificationStatus, ExpenseCategory, ExpenseLinkType, LicenseApplicationOrigin, LicenseApplicationSource, LicenseCategory, LicenseDocumentVerificationStatus, LicenseIntakeStatus, LicenseInvoiceStatus, LicensePaidTo, LicensePaymentMethod, LicensePaymentStatus, LicenseReviewStatus, LicenseStatus, ReconciliationStatus, ReimbursementStatus, StampStatus } from "@/types";
+import type { ConfidentialityLevel, CostCenterType, CurrencyCode, DocumentApprovalStatus, DocumentLinkedModule, DocumentType, DocumentVerificationStatus, ExpenseCategory, ExpenseLinkType, LicenseApplicationOrigin, LicenseApplicationSource, LicenseCategory, LicenseDocumentVerificationStatus, LicenseIntakeStatus, LicenseInvoiceStatus, LicensePaidTo, LicensePaymentMethod, LicensePaymentStatus, LicenseReviewStatus, LicenseStatus, ReconciliationStatus, ReimbursementStatus, RevenueCategory, StampPosition, StampSize, StampStatus } from "@/types";
 
 export const expenseCategories: ExpenseCategory[] = [
   "Travel",
@@ -21,6 +21,8 @@ export const expenseCategories: ExpenseCategory[] = [
 export const currencies: CurrencyCode[] = ["AED", "USD", "EUR", "GBP", "RUB"];
 
 export const expenseLinkTypes: ExpenseLinkType[] = ["Event", "Workshop", "Tournament", "Meeting", "General Operations"];
+
+export const revenueCategories: RevenueCategory[] = ["License Revenue", "Workshop Revenue", "Event Revenue", "Sanction Revenue", "Membership Revenue", "Sponsorship Revenue", "Donation Revenue", "Other Revenue"];
 
 export const costCenterTypes: CostCenterType[] = ["Event", "Workshop", "Department", "Federation Operations", "WBC Operations", "Licensing", "General Admin", "Athletic Commission Operations"];
 
@@ -59,6 +61,7 @@ export const documentTypes: DocumentType[] = [
 export const documentLinkedModules: DocumentLinkedModule[] = ["Expense", "Receipt", "Reimbursement", "Revenue", "Event", "Cost Center", "Person", "License Application", "License/Application future use"];
 
 export const documentVerificationStatuses: DocumentVerificationStatus[] = ["Unchecked", "Verified", "Needs Clarification", "Rejected"];
+export const documentApprovalStatuses: DocumentApprovalStatus[] = ["Draft", "Pending Approval", "Approved Awaiting Stamp", "Stamped / Certified", "Issued", "Rejected", "Cancelled"];
 
 export const confidentialityLevels: ConfidentialityLevel[] = ["Public/Internal", "Finance Only", "Board Only", "Restricted"];
 
@@ -89,6 +92,8 @@ export const licensePaidToOptions: LicensePaidTo[] = ["UAE Boxing Federation", "
 export const licenseReviewStatuses: LicenseReviewStatus[] = ["New", "Awaiting Payment", "Awaiting Payment Verification", "Pending Review - Payment Section", "Pending Documents", "Pending Payment", "Eligible For Chief Review", "Under Chief Review", "Pending Chief Review", "Approved by Chief", "Rejected", "Ready for Stamp", "License Issued"];
 
 export const stampStatuses: StampStatus[] = ["Not Available Yet", "Awaiting Stamp", "Stamped", "Not Required"];
+export const stampPositions: StampPosition[] = ["Bottom Right", "Bottom Center", "Bottom Left", "Near Signature", "Custom"];
+export const stampSizes: StampSize[] = ["Small", "Medium", "Large"];
 
 export const licenseStatuses: LicenseStatus[] = ["Application Registered", "Awaiting Payment", "Awaiting Review", "Approved Awaiting Stamp", "Issued", "Rejected", "Expired", "Suspended"];
 

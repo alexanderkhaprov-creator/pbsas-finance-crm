@@ -4,6 +4,7 @@ import { Download } from "lucide-react";
 import { useFinanceData } from "@/components/finance-data-provider";
 import { PageHeader } from "@/components/page-header";
 import { sumOutstanding, totalExpensesByField } from "@/lib/finance-calculations";
+import { getFinancialReporting } from "@/lib/financial-reporting";
 import { formatCurrency } from "@/lib/format";
 import { getLicenseRevenueSummary } from "@/lib/license-revenue";
 
@@ -26,9 +27,9 @@ function SummaryPanel({ title, totals, currency = true }: { title: string; total
       <h3 className="text-base font-semibold text-ink">{title}</h3>
       <div className="mt-4 space-y-3">
         {Object.entries(totals).map(([label, amount]) => (
-          <div className="flex items-center justify-between gap-4 border-b border-black/5 pb-2 text-sm" key={label}>
-            <span className="text-steel">{label}</span>
-            <span className="font-semibold text-ink">{currency ? formatCurrency(amount) : amount}</span>
+          <div className="flex min-w-0 items-center justify-between gap-4 border-b border-black/5 pb-2 text-sm" key={label}>
+            <span className="min-w-0 break-words text-steel">{label}</span>
+            <span className="min-w-0 shrink-0 overflow-hidden whitespace-nowrap text-[clamp(0.8rem,1vw,1rem)] font-semibold text-ink tabular-nums">{currency ? formatCurrency(amount) : amount}</span>
           </div>
         ))}
       </div>
@@ -53,7 +54,7 @@ function coreDocumentStatus(application: ReturnType<typeof useFinanceData>["lice
 }
 
 export default function ReportsPage() {
-  const { expenses, reimbursements, receipts, revenues, auditLogs, applicationImports, licenseApplications, licenseFeeSchedule, licenseReceipts, generatedLicenses } = useFinanceData();
+  const { expenses, reimbursements, receipts, revenues, auditLogs, documents, applicationImports, licenseApplications, licenseFeeSchedule, licenseReceipts, generatedLicenses } = useFinanceData();
   const expenseTotal = expenses.reduce((sum, expense) => sum + expense.amount, 0);
   const reimbursementTotal = reimbursements.reduce((sum, reimbursement) => sum + reimbursement.amount, 0);
   const revenueByCostCenter = revenues.reduce<Record<string, number>>((totals, revenue) => {
@@ -201,6 +202,12 @@ export default function ReportsPage() {
     return totals;
   }, {});
   const licenseRevenue = getLicenseRevenueSummary(licenseApplications);
+  const financialReporting = getFinancialReporting({ expenses, revenues, licenseApplications });
+  const documentApprovalRegister = [
+    ...documents.map((document) => ({ id: document.id, title: document.title, approvalStatus: document.approvalStatus ?? "Draft", stampStatus: document.stampStatus ?? "Not Available Yet", issuedDate: document.issuedDate ?? "", approvedBy: document.approvedBy ?? "", stampedBy: document.stampedBy ?? "" })),
+    ...generatedLicenses.map((license) => ({ id: license.id, title: `${license.applicantName} · ${license.lin}`, approvalStatus: license.approvalStatus ?? "Draft", stampStatus: license.stampStatus, issuedDate: license.issuedDate ?? "", approvedBy: license.approvedBy ?? "", stampedBy: license.stampedBy ?? "" })),
+    ...licenseReceipts.map((receipt) => ({ id: receipt.id, title: `${receipt.applicantName} receipt`, approvalStatus: receipt.approvalStatus ?? "Issued", stampStatus: receipt.stampStatus ?? "Not Available Yet", issuedDate: receipt.issuedDate ?? receipt.receiptDate, approvedBy: receipt.approvedBy ?? "", stampedBy: receipt.stampedBy ?? "" }))
+  ];
 
   return (
     <>
@@ -211,12 +218,12 @@ export default function ReportsPage() {
       <div className="mb-6 grid gap-4 md:grid-cols-2">
         <section className="rounded border border-black/10 bg-white p-5 shadow-soft">
           <h3 className="text-base font-semibold text-ink">Expense summaries</h3>
-          <p className="mt-3 text-3xl font-semibold text-ink">{formatCurrency(expenseTotal)}</p>
+          <p className="mt-3 min-w-0 max-w-full overflow-hidden whitespace-nowrap text-[clamp(1rem,2vw,1.875rem)] font-semibold leading-tight text-ink tabular-nums">{formatCurrency(expenseTotal)}</p>
           <p className="mt-1 text-sm text-steel">{expenses.length} expense records</p>
         </section>
         <section className="rounded border border-black/10 bg-white p-5 shadow-soft">
           <h3 className="text-base font-semibold text-ink">Reimbursement summaries</h3>
-          <p className="mt-3 text-3xl font-semibold text-ink">{formatCurrency(reimbursementTotal)}</p>
+          <p className="mt-3 min-w-0 max-w-full overflow-hidden whitespace-nowrap text-[clamp(1rem,2vw,1.875rem)] font-semibold leading-tight text-ink tabular-nums">{formatCurrency(reimbursementTotal)}</p>
           <p className="mt-1 text-sm text-steel">{reimbursements.length} reimbursement records</p>
         </section>
       </div>
@@ -233,7 +240,7 @@ export default function ReportsPage() {
       </section>
       <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
         <h3 className="text-base font-semibold text-ink">License Income by Category</h3>
-        <p className="mt-3 text-3xl font-semibold text-ink">{formatCurrency(licenseRevenue.totalRevenue)}</p>
+        <p className="mt-3 min-w-0 max-w-full overflow-hidden whitespace-nowrap text-[clamp(1rem,2vw,1.875rem)] font-semibold leading-tight text-ink tabular-nums">{formatCurrency(licenseRevenue.totalRevenue)}</p>
         <p className="mt-1 text-sm text-steel">Total Revenue from License Applications</p>
         <div className="mt-5 overflow-x-auto">
           <table className="w-full min-w-[780px] text-left text-sm">
@@ -252,6 +259,105 @@ export default function ReportsPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      </section>
+      <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
+        <h3 className="text-base font-semibold text-ink">Income Statement</h3>
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <ReportMetric label="Total Revenue" value={formatCurrency(financialReporting.receivedRevenue)} />
+          <ReportMetric label="Total Expenses" value={formatCurrency(financialReporting.totalExpenses)} />
+          <ReportMetric label={financialReporting.netPosition >= 0 ? "Net Surplus" : "Net Deficit"} value={formatCurrency(financialReporting.netPosition)} />
+        </div>
+      </section>
+      <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
+        <h3 className="text-base font-semibold text-ink">Revenue by Category</h3>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[680px] text-left text-sm">
+            <thead className="bg-[#f1f1ee] text-xs uppercase tracking-[0.12em] text-steel">
+              <tr>{["Category", "Count", "Amount"].map((heading) => <th className="px-4 py-3 font-semibold" key={heading}>{heading}</th>)}</tr>
+            </thead>
+            <tbody className="divide-y divide-black/10">
+              {financialReporting.revenueByCategory.map((row) => (
+                <tr key={row.category}>
+                  <td className="px-4 py-4 font-medium text-ink">{row.category}</td>
+                  <td className="px-4 py-4 text-steel">{row.count}</td>
+                  <td className="px-4 py-4 font-semibold text-ink">{formatCurrency(row.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
+        <h3 className="text-base font-semibold text-ink">Revenue by Month</h3>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="bg-[#f1f1ee] text-xs uppercase tracking-[0.12em] text-steel">
+              <tr>{["Month", "Revenue", "Expenses", "Net Position"].map((heading) => <th className="px-4 py-3 font-semibold" key={heading}>{heading}</th>)}</tr>
+            </thead>
+            <tbody className="divide-y divide-black/10">
+              {financialReporting.revenueByMonth.map((row) => (
+                <tr key={row.month}>
+                  <td className="px-4 py-4 font-medium text-ink">{row.month}</td>
+                  <td className="px-4 py-4 text-steel">{formatCurrency(row.revenue)}</td>
+                  <td className="px-4 py-4 text-steel">{formatCurrency(row.expenses)}</td>
+                  <td className="px-4 py-4 font-semibold text-ink">{formatCurrency(row.netPosition)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
+        <h3 className="text-base font-semibold text-ink">Revenue Outstanding & Collection Report</h3>
+        <div className="mt-4 grid gap-4 md:grid-cols-4">
+          <ReportMetric label="Expected Revenue" value={formatCurrency(financialReporting.expectedRevenue)} />
+          <ReportMetric label="Received Revenue" value={formatCurrency(financialReporting.receivedRevenue)} />
+          <ReportMetric label="Outstanding Revenue" value={formatCurrency(financialReporting.outstandingRevenue)} />
+          <ReportMetric label="Collection Rate" value={`${financialReporting.collectionRate.toFixed(1)}%`} />
+        </div>
+      </section>
+      <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
+        <h3 className="text-base font-semibold text-ink">Event Profitability</h3>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="bg-[#f1f1ee] text-xs uppercase tracking-[0.12em] text-steel">
+              <tr>{["Event", "Revenue", "Expenses", "Net Position"].map((heading) => <th className="px-4 py-3 font-semibold" key={heading}>{heading}</th>)}</tr>
+            </thead>
+            <tbody className="divide-y divide-black/10">
+              {financialReporting.eventProfitability.map((row) => (
+                <tr key={row.event}>
+                  <td className="px-4 py-4 font-medium text-ink">{row.event}</td>
+                  <td className="px-4 py-4 text-steel">{formatCurrency(row.revenue)}</td>
+                  <td className="px-4 py-4 text-steel">{formatCurrency(row.expenses)}</td>
+                  <td className="px-4 py-4 font-semibold text-ink">{formatCurrency(row.netPosition)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
+        <h3 className="text-base font-semibold text-ink">Document Approval Register</h3>
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <ReportMetric label="Pending Approval" value={String(documentApprovalRegister.filter((item) => item.approvalStatus === "Pending Approval").length)} />
+          <ReportMetric label="Awaiting Stamp" value={String(documentApprovalRegister.filter((item) => item.approvalStatus === "Approved Awaiting Stamp").length)} />
+          <ReportMetric label="Issued Documents" value={String(documentApprovalRegister.filter((item) => item.approvalStatus === "Issued").length)} />
+        </div>
+      </section>
+      <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
+        <h3 className="text-base font-semibold text-ink">Stamped Documents Register</h3>
+        <SummaryPanel title="Stamped documents" totals={{ "Stamped / Certified": documentApprovalRegister.filter((item) => item.approvalStatus === "Stamped / Certified" || item.stampStatus === "Stamped").length }} currency={false} />
+      </section>
+      <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
+        <h3 className="text-base font-semibold text-ink">Issued Documents Register</h3>
+        <SummaryPanel title="Issued documents" totals={{ Issued: documentApprovalRegister.filter((item) => item.approvalStatus === "Issued").length }} currency={false} />
+      </section>
+      <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
+        <h3 className="text-base font-semibold text-ink">License Stamp Status</h3>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <ReportMetric label="Licenses Awaiting Stamp" value={String(generatedLicenses.filter((license) => (license.approvalStatus ?? "Draft") === "Approved Awaiting Stamp").length)} />
+          <ReportMetric label="Licenses Issued" value={String(generatedLicenses.filter((license) => license.approvalStatus === "Issued").length)} />
         </div>
       </section>
       <div className="grid gap-4 xl:grid-cols-2">
@@ -311,5 +417,14 @@ export default function ReportsPage() {
         <SummaryPanel title="Expenses by operational link" totals={totalExpensesByField(expenses, "linkType")} />
       </div>
     </>
+  );
+}
+
+function ReportMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 overflow-hidden rounded border border-black/10 bg-[#f7f7f5] p-4">
+      <p className="min-w-0 break-words text-sm text-steel">{label}</p>
+      <p className="mt-2 min-w-0 max-w-full overflow-hidden whitespace-nowrap text-[clamp(0.8rem,1vw,1.5rem)] font-semibold leading-tight text-ink tabular-nums">{value}</p>
+    </div>
   );
 }

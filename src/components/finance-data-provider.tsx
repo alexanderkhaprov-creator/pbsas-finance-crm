@@ -86,6 +86,7 @@ const storageKeys = {
 } as const;
 
 const LICENSE_YEAR_PREFIX = "UAEAC2026";
+const OFFICIAL_UAEAC_STAMP = "/uaeac-stamp-red.jpeg";
 const UNIVERSAL_REQUIRED_LICENSE_DOCUMENTS = ["Copy of Passport OR National ID document", "Passport-Sized Photograph"];
 const UNIVERSAL_OPTIONAL_LICENSE_DOCUMENTS = ["Current Medical Examination", "Professional Certifications Held", "Other Supporting Documents"];
 
@@ -260,6 +261,62 @@ function buildReimbursement(expense: Expense, existing?: Reimbursement): Reimbur
 function syncReimbursements(expenses: Expense[], reimbursements: Reimbursement[]) {
   const byExpenseId = new Map(reimbursements.map((reimbursement) => [reimbursement.linkedExpense, reimbursement]));
   return expenses.filter((expense) => expense.reimbursable).map((expense) => buildReimbursement(expense, byExpenseId.get(expense.id)));
+}
+
+function normalizeRevenueRecord<T extends EntityInput<Revenue> | Revenue>(revenue: T) {
+  const expectedRevenue = typeof revenue.expectedRevenue === "number" ? revenue.expectedRevenue : parseMoneyInput(String(revenue.expectedRevenue ?? revenue.amount ?? 0));
+  const receivedRevenue = typeof revenue.receivedRevenue === "number" ? revenue.receivedRevenue : parseMoneyInput(String(revenue.receivedRevenue ?? revenue.amount ?? 0));
+  return {
+    ...revenue,
+    revenueCategory: revenue.revenueCategory || "Other Revenue",
+    amount: receivedRevenue,
+    expectedRevenue,
+    receivedRevenue,
+    outstandingRevenue: Math.max(0, expectedRevenue - receivedRevenue)
+  };
+}
+
+function normalizeStampSettings(settings: StampSettings): StampSettings {
+  return {
+    ...settings,
+    stampAvailable: settings.stampAvailable || "Yes",
+    stampName: settings.stampName || "UAEAC Red Official Stamp",
+    stampImageFileName: settings.stampImageFileName || OFFICIAL_UAEAC_STAMP,
+    stampDisplayLabel: settings.stampDisplayLabel || "Red Official UAEAC Stamp",
+    stampPositionDefault: settings.stampPositionDefault ?? "Bottom Right",
+    stampSize: settings.stampSize ?? "Medium",
+    defaultStampedBy: settings.defaultStampedBy || "UAEAC Licensing Desk",
+    defaultStampTitle: settings.defaultStampTitle || "UAE Athletic Commission",
+    stampNotes: settings.stampNotes || "Red Official UAEAC Stamp"
+  };
+}
+
+function documentRegisterEntryForLicense(license: GeneratedLicense, id: string): SupportingDocument {
+  return {
+    id,
+    documentType: "Accreditation Certificate",
+    title: `UAEAC License ${license.lin}`,
+    linkedModule: "License Application",
+    linkedRecordId: license.applicationId,
+    fileName: `${license.id}.pdf`,
+    receivedDate: license.issuedDate || license.dateIssued,
+    issuedBy: license.issuedBy,
+    receivedFrom: license.applicantName,
+    currency: "AED",
+    amount: 0,
+    verificationStatus: license.approvalStatus === "Rejected" ? "Rejected" : "Verified",
+    approvalStatus: license.approvalStatus ?? "Draft",
+    stampStatus: license.stampStatus,
+    issuedDate: license.issuedDate,
+    approvedBy: license.approvedBy,
+    approvalTitle: license.approvalTitle,
+    approvalDate: license.approvalDate,
+    rejectionReason: license.rejectionReason,
+    stampedBy: license.stampedBy,
+    stampDate: license.stampDate,
+    confidentialityLevel: "Finance Only",
+    notes: license.notes ?? "Generated from UAEAC license draft."
+  };
 }
 
 function isValidLicenseIssueNumber(value: string | null | undefined) {
@@ -657,7 +714,7 @@ function sanitizeBackupRecords(backup: BackupData): BackupData {
     licenseIntake: ensureRecordIds(backup.licenseIntake, "INT"),
     licenseReceipts: ensureRecordIds(backup.licenseReceipts ?? [], "RCT-2026"),
     generatedLicenses: ensureRecordIds(backup.generatedLicenses ?? [], "LIC-2026"),
-    stampSettings: backup.stampSettings ?? initialStampSettings,
+    stampSettings: normalizeStampSettings(backup.stampSettings ?? initialStampSettings),
     licenseFeeSchedule: ensureRecordIds(backup.licenseFeeSchedule, "LFS"),
     licenseDocumentRequirements: ensureRecordIds(backup.licenseDocumentRequirements, "LDR"),
     paymentSettings: backup.paymentSettings ?? initialPaymentSettings
@@ -805,7 +862,7 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
       setLicenseIntake(ensureRecordIds(backfillDemoFields(readStoredArray<LicenseIntake>(storageKeys.licenseIntake, intakeFallback), initialLicenseIntake), "INT"));
       setLicenseReceipts(readStoredLicenseReceipts());
       setGeneratedLicenses(readStoredGeneratedLicenses());
-      setStampSettings(readStoredObject<StampSettings>(storageKeys.stampSettings, initialStampSettings));
+      setStampSettings(normalizeStampSettings(readStoredObject<StampSettings>(storageKeys.stampSettings, initialStampSettings)));
       setLicenseFeeSchedule(readStoredLicenseFeeSchedule());
       setLicenseDocumentRequirements(readStoredLicenseDocumentRequirements());
       setPaymentSettings(readStoredObject<PaymentSettings>(storageKeys.paymentSettings, initialPaymentSettings));
@@ -1279,9 +1336,9 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
         audit("Reimbursements", reimbursement.id, reimbursement.personOwed, "Deleted", reimbursement, null);
       },
       addRevenue: async (revenueInput) => {
-        const revenue: Revenue = { ...withPeriod(revenueInput, financialPeriods), id: resolveNewRecordId(revenues, revenueInput.id, "REV") };
+        const revenue: Revenue = { ...withPeriod(normalizeRevenueRecord(revenueInput), financialPeriods), id: resolveNewRecordId(revenues, revenueInput.id, "REV") };
         setRevenues((current) => [revenue, ...current]);
-        audit("Revenue", revenue.id, revenue.source, "Created", null, revenue);
+        audit("Revenue", revenue.id, revenue.source, "Revenue Created", null, revenue);
       },
       updateRevenue: async (revenue) => {
         const previous = revenues.find((item) => item.id === revenue.id);
@@ -1291,13 +1348,13 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
           audit("Revenue", revenue.id, revenue.source, "Updated", previous, revenue, `Closed-period edit warning for ${periodLabel(period)} was not confirmed.`);
           return;
         }
-        const normalized = withPeriod(revenue, financialPeriods);
+        const normalized = withPeriod(normalizeRevenueRecord(revenue), financialPeriods);
         setRevenues((current) => current.map((item) => (item.id === revenue.id ? normalized : item)));
-        audit("Revenue", normalized.id, normalized.source, statusChanged(previous, normalized) ? "Status Changed" : "Updated", previous, normalized);
+        audit("Revenue", normalized.id, normalized.source, "Revenue Updated", previous, normalized);
       },
       deleteRevenue: async (revenue) => {
         setRevenues((current) => current.filter((item) => item.id !== revenue.id));
-        audit("Revenue", revenue.id, revenue.source, "Deleted", revenue, null);
+        audit("Revenue", revenue.id, revenue.source, "Revenue Deleted", revenue, null);
       },
       addReceipt: async (receiptInput) => {
         const paidByPerson = people.find((person) => person.id === receiptInput.paidByPersonId || person.fullName === receiptInput.paidBy);
@@ -1363,7 +1420,15 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
       updateDocument: async (document) => {
         const previous = documents.find((item) => item.id === document.id);
         setDocuments((current) => current.map((item) => (item.id === document.id ? document : item)));
-        audit("Document Register", document.id, document.title, statusChanged(previous, document) ? "Status Changed" : "Updated", previous, document, "Document register entry updated.");
+        const action: AuditAction =
+          previous?.stampStatus !== "Stamped" && document.stampStatus === "Stamped"
+            ? "Stamp Applied"
+            : previous?.approvalStatus !== document.approvalStatus && document.approvalStatus === "Stamped / Certified"
+              ? "Document Certified With Stamp"
+              : previous?.approvalStatus !== document.approvalStatus && document.approvalStatus === "Issued"
+                ? "Document Issued"
+                : statusChanged(previous, document) ? "Status Changed" : "Updated";
+        audit("Document Register", document.id, document.title, action, previous, document, "Document register entry updated.");
       },
       deleteDocument: async (document) => {
         setDocuments((current) => current.filter((item) => item.id !== document.id));
@@ -1699,9 +1764,41 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
           receivedFor: "UAEAC Professional Boxing License Fee",
           notes: application.paymentNotes,
           status: "Active",
+          approvalStatus: "Issued",
+          stampStatus: stampSettings.stampAvailable === "Yes" ? "Stamped" : "Not Available Yet",
+          issuedDate: new Date().toISOString().slice(0, 10),
+          approvedBy: "Finance Admin",
+          approvalTitle: "Finance Admin",
+          approvalDate: new Date().toISOString().slice(0, 10),
+          stampedBy: stampSettings.stampAvailable === "Yes" ? stampSettings.defaultStampedBy : "",
+          stampDate: stampSettings.stampAvailable === "Yes" ? new Date().toISOString().slice(0, 10) : "",
           createdAt: new Date().toISOString()
         };
         setLicenseReceipts((current) => [receipt, ...current]);
+        setDocuments((current) => [{
+          id: getNextSequentialId(current, "DOC"),
+          documentType: "Receipt",
+          title: `License Receipt ${receipt.id}`,
+          linkedModule: "License Application",
+          linkedRecordId: application.id,
+          fileName: `${receipt.id}.pdf`,
+          receivedDate: receipt.receiptDate,
+          issuedBy: receipt.receivedBy,
+          receivedFrom: receipt.applicantName,
+          currency: receipt.currency,
+          amount: receipt.amountReceived,
+          verificationStatus: "Verified",
+          approvalStatus: receipt.approvalStatus,
+          stampStatus: receipt.stampStatus,
+          issuedDate: receipt.issuedDate,
+          approvedBy: receipt.approvedBy,
+          approvalTitle: receipt.approvalTitle,
+          approvalDate: receipt.approvalDate,
+          stampedBy: receipt.stampedBy,
+          stampDate: receipt.stampDate,
+          confidentialityLevel: "Finance Only",
+          notes: "Generated UAEAC license payment receipt."
+        }, ...current]);
         setLicenseApplications((current) => current.map((item) => (item.id === application.id ? { ...item, receiptNumber: receipt.id } : item)));
         audit("License Applications", application.id, application.applicantFullName, "Receipt Generated", null, receipt, `Generated receipt ${receipt.id}.`);
         return receipt;
@@ -1726,7 +1823,17 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
           categoryLabel: licenseCategoryLabel(application),
           dateIssued: issueDate,
           expiryDate: addValidity(issueDate, application.validityPeriod),
-          stampStatus: stampSettings.stampAvailable === "Yes" ? "Stamped" : "Awaiting Stamp",
+          stampStatus: "Awaiting Stamp",
+          approvalStatus: "Approved Awaiting Stamp",
+          approvedBy: application.approvedBy || application.chiefReviewer,
+          approvalTitle: "UAE Athletic Commission",
+          approvalDate: application.approvalDate || issueDate,
+          stampedBy: "",
+          stampDate: "",
+          stampImageFileName: "",
+          stampPosition: stampSettings.stampPositionDefault ?? "Bottom Right",
+          stampSize: stampSettings.stampSize ?? "Medium",
+          issuedDate: "",
           issuedBy: application.approvedBy || application.chiefReviewer,
           issuedByTitle: "UAE Athletic Commission",
           printStatus: "Draft",
@@ -1735,22 +1842,51 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
         setGeneratedLicenses((current) => [generatedLicense, ...current]);
         setLicenseApplications((current) => current.map((item) => (item.id === application.id ? {
           ...item,
-          stampStatus: stampSettings.stampAvailable === "Yes" ? "Stamped" : "Awaiting Stamp",
-          licenseStatus: stampSettings.stampAvailable === "Yes" ? "Issued" : "Approved Awaiting Stamp",
-          reviewStatus: stampSettings.stampAvailable === "Yes" ? "License Issued" : item.reviewStatus,
+          stampStatus: "Awaiting Stamp",
+          licenseStatus: "Approved Awaiting Stamp",
           licenseExpiryDate: generatedLicense.expiryDate,
-          stampDate: stampSettings.stampAvailable === "Yes" ? issueDate : item.stampDate,
-          stampedBy: stampSettings.stampAvailable === "Yes" ? stampSettings.defaultStampedBy : item.stampedBy
+          stampDate: "",
+          stampedBy: ""
         } : item)));
+        setDocuments((current) => [documentRegisterEntryForLicense(generatedLicense, getNextSequentialId(current, "DOC")), ...current]);
         audit("License Applications", application.id, application.applicantFullName, "License Draft Generated", null, generatedLicense, `Generated ${generatedLicense.id}.`);
         return generatedLicense;
       },
       updateGeneratedLicense: (license) => {
+        const previous = generatedLicenses.find((item) => item.id === license.id);
         setGeneratedLicenses((current) => current.map((item) => (item.id === license.id ? license : item)));
-        audit("License Applications", license.applicationId, license.applicantName, license.printStatus === "Printed" ? "License Printed / Downloaded" : "License Previewed", null, license);
+        setDocuments((current) => {
+          const existing = current.find((document) => document.linkedModule === "License Application" && document.linkedRecordId === license.applicationId && document.title.includes(license.lin));
+          const nextDocument = documentRegisterEntryForLicense(license, existing?.id ?? getNextSequentialId(current, "DOC"));
+          return existing ? current.map((document) => (document.id === existing.id ? nextDocument : document)) : [nextDocument, ...current];
+        });
+        if (license.approvalStatus === "Stamped / Certified" || license.stampStatus === "Stamped") {
+          setLicenseApplications((current) => current.map((item) => (item.id === license.applicationId ? { ...item, stampStatus: "Stamped", stampDate: license.stampDate ?? item.stampDate, stampedBy: license.stampedBy ?? item.stampedBy } : item)));
+        }
+        if (license.approvalStatus === "Issued") {
+          setLicenseApplications((current) => current.map((item) => (item.id === license.applicationId ? { ...item, stampStatus: "Stamped", licenseStatus: "Issued", reviewStatus: "License Issued", stampDate: license.stampDate ?? item.stampDate, stampedBy: license.stampedBy ?? item.stampedBy } : item)));
+        }
+        const action: AuditAction =
+          previous?.approvalStatus !== license.approvalStatus && license.approvalStatus === "Pending Approval"
+            ? "Document Submitted for Approval"
+            : previous?.approvalStatus !== license.approvalStatus && license.approvalStatus === "Approved Awaiting Stamp"
+              ? "Document Approved"
+              : previous?.approvalStatus !== license.approvalStatus && license.approvalStatus === "Rejected"
+                ? "Document Rejected"
+                : previous?.approvalStatus !== license.approvalStatus && license.approvalStatus === "Stamped / Certified"
+                  ? "Document Certified With Stamp"
+                  : previous?.approvalStatus !== license.approvalStatus && license.approvalStatus === "Issued"
+                    ? "License Issued With Stamp"
+                    : previous?.approvalStatus !== license.approvalStatus && license.approvalStatus === "Cancelled"
+                      ? "Document Cancelled"
+                      : license.printStatus === "Printed" ? "License Printed / Downloaded" : "License Previewed";
+        audit("License Applications", license.applicationId, license.applicantName, action, previous, license);
+        if (previous?.stampStatus !== "Stamped" && license.stampStatus === "Stamped") {
+          audit("License Applications", license.applicationId, license.applicantName, "Stamp Applied", previous, license, `Applied ${license.stampImageFileName || OFFICIAL_UAEAC_STAMP}.`);
+        }
       },
       updateStampSettings: (settings) => {
-        const nextSettings = { ...settings, updatedAt: new Date().toISOString() };
+        const nextSettings = normalizeStampSettings({ ...settings, updatedAt: new Date().toISOString() });
         setStampSettings(nextSettings);
         audit("Data Management", "STAMP-SETTINGS", "Stamp Settings", "Updated", stampSettings, nextSettings, "Updated UAEAC stamp settings.");
       },

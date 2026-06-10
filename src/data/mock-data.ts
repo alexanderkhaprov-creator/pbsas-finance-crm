@@ -419,11 +419,15 @@ export const licenseReceipts: LicenseReceipt[] = [];
 export const generatedLicenses: GeneratedLicense[] = [];
 
 export const stampSettings: StampSettings = {
-  stampAvailable: "No",
-  stampName: "UAE Athletic Commission Stamp",
-  stampImageFileName: "",
+  stampAvailable: "Yes",
+  stampName: "UAEAC Red Official Stamp",
+  stampImageFileName: "/uaeac-stamp-red.jpeg",
+  stampDisplayLabel: "Red Official UAEAC Stamp",
+  stampPositionDefault: "Bottom Right",
+  stampSize: "Medium",
   defaultStampedBy: "UAEAC Licensing Desk",
-  stampNotes: "Stamp unavailable by default. Approved applications remain Approved Awaiting Stamp until enabled.",
+  defaultStampTitle: "UAE Athletic Commission",
+  stampNotes: "Red Official UAEAC Stamp",
   updatedAt: "2026-01-01T00:00:00.000Z"
 };
 

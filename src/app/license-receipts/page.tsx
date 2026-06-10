@@ -8,7 +8,11 @@ import { formatCurrency, formatDate } from "@/lib/format";
 import type { LicenseReceipt } from "@/types";
 
 function printReceipt(receipt: LicenseReceipt, markDownloaded: (receipt: LicenseReceipt) => void) {
-  const html = `<!doctype html><html><head><title>${receipt.id}</title><style>body{font-family:Arial,sans-serif;color:#111;padding:40px}.head{text-align:center;border-bottom:3px solid #111;padding-bottom:18px}.box{border:1px solid #222;padding:18px;margin-top:22px}.row{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:8px 0}.label{font-weight:700;color:#555}.sig{margin-top:55px;display:flex;justify-content:space-between}</style></head><body><div class="head"><h1>UAE Athletic Commission</h1><h2>Official Payment Receipt</h2><p>Professional Boxing Licensing Division</p></div><div class="box">${[
+  const stampSrc = `${window.location.origin}/uaeac-stamp-red.jpeg`;
+  const stampBlock = receipt.stampStatus === "Stamped" || receipt.approvalStatus === "Issued"
+    ? `<div class="stamp"><img src="${stampSrc}" alt="UAEAC Official Stamp" style="width:112px;height:auto;display:block;margin:0 auto 8px;"/><strong>Certified by UAE Athletic Commission</strong><br/>Stamped by: ${receipt.stampedBy || "UAEAC"}<br/>Date: ${receipt.stampDate || receipt.issuedDate || ""}</div>`
+    : `<div class="stamp pending">Commission Stamp: ____________________</div>`;
+  const html = `<!doctype html><html><head><title>${receipt.id}</title><style>body{font-family:Arial,sans-serif;color:#111;padding:40px}.head{text-align:center;border-bottom:3px solid #111;padding-bottom:18px}.box{border:1px solid #222;padding:18px;margin-top:22px}.row{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:8px 0}.label{font-weight:700;color:#555}.sig{margin-top:55px;display:flex;justify-content:space-between}.stamp{border:2px solid #111;padding:12px;text-align:center;min-width:220px}.pending{border-style:dashed;color:#555}</style></head><body><div class="head"><h1>UAE Athletic Commission</h1><h2>Official Payment Receipt</h2><p>Professional Boxing Licensing Division</p></div><div class="box">${[
     ["Receipt Number", receipt.id],
     ["Receipt Date", receipt.receiptDate],
     ["Applicant Name", receipt.applicantName],
@@ -24,7 +28,7 @@ function printReceipt(receipt: LicenseReceipt, markDownloaded: (receipt: License
     ["Received By", receipt.receivedBy],
     ["Received For", receipt.receivedFor],
     ["Notes", receipt.notes]
-  ].map(([label, value]) => `<div class="row"><span class="label">${label}</span><span>${value || ""}</span></div>`).join("")}</div><div class="sig"><div>Received By: ____________________</div><div>Commission Stamp: ____________________</div></div></body></html>`;
+  ].map(([label, value]) => `<div class="row"><span class="label">${label}</span><span>${value || ""}</span></div>`).join("")}</div><div class="sig"><div>Received By: ${receipt.receivedBy}</div>${stampBlock}</div></body></html>`;
   const printWindow = window.open("", "_blank");
   if (!printWindow) return;
   printWindow.document.write(html);
@@ -43,7 +47,7 @@ export default function LicenseReceiptsPage() {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1300px] text-left text-sm">
             <thead className="bg-[#f1f1ee] text-xs uppercase tracking-[0.12em] text-steel">
-              <tr>{["Receipt", "Receipt Date", "Payment Date", "Applicant", "Application", "LIN", "Invoice", "Category", "Amount", "Method", "Paid To", "Status", "Actions"].map((heading) => <th className="px-4 py-3 font-semibold" key={heading}>{heading}</th>)}</tr>
+              <tr>{["Receipt", "Receipt Date", "Payment Date", "Applicant", "Application", "LIN", "Invoice", "Category", "Amount", "Method", "Paid To", "Approval", "Stamp", "Status", "Actions"].map((heading) => <th className="px-4 py-3 font-semibold" key={heading}>{heading}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-black/10">
               {licenseReceipts.map((receipt) => (
@@ -59,6 +63,8 @@ export default function LicenseReceiptsPage() {
                   <td className="px-4 py-4 font-semibold text-ink">{formatCurrency(receipt.amountReceived, receipt.currency)}</td>
                   <td className="px-4 py-4 text-steel">{receipt.paymentMethod}</td>
                   <td className="px-4 py-4 text-steel">{receipt.paidTo}</td>
+                  <td className="px-4 py-4"><StatusBadge value={receipt.approvalStatus ?? "Issued"} /></td>
+                  <td className="px-4 py-4"><StatusBadge value={receipt.stampStatus ?? "Not Available Yet"} /></td>
                   <td className="px-4 py-4"><StatusBadge value={receipt.status} /></td>
                   <td className="px-4 py-4"><button className="inline-flex items-center gap-2 rounded border border-black/10 px-3 py-2 text-sm font-semibold text-steel hover:border-gold hover:text-ink" onClick={() => printReceipt(receipt, markLicenseReceiptDownloaded)}><Printer className="h-4 w-4" />Print</button></td>
                 </tr>

@@ -402,7 +402,7 @@ function ReviewModal({
       stampStatus: "Stamped",
       stampDate: form.stampDate || form.approvalDate,
       completionChecklist: { ...form.completionChecklist, chiefReviewComplete: true, stampComplete: true }
-    }, "License issued");
+    }, "License Issued With Stamp");
   }
 
   return (
@@ -657,7 +657,7 @@ function PaymentSectionModal({
 }
 
 export default function LicenseApplicationsPage() {
-  const { documents, auditLogs, licenseApplications, licenseReceipts, generatedLicenses, stampSettings, addLicenseApplication, updateLicenseApplication, deleteLicenseApplication, generateLicenseReceipt, generateLicenseDraft, addAuditLog } = useFinanceData();
+  const { documents, auditLogs, licenseApplications, licenseReceipts, generatedLicenses, stampSettings, addLicenseApplication, updateLicenseApplication, deleteLicenseApplication, generateLicenseReceipt, generateLicenseDraft, updateGeneratedLicense, addAuditLog } = useFinanceData();
   const [query, setQuery] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("");
   const [paidToFilter, setPaidToFilter] = useState("");
@@ -721,6 +721,24 @@ export default function LicenseApplicationsPage() {
 
   async function saveReview(application: LicenseApplication, auditAction?: AuditAction) {
     await updateLicenseApplication(application);
+    if (auditAction === "License Issued With Stamp") {
+      try {
+        const generated = await generateLicenseDraft(application);
+        updateGeneratedLicense({
+          ...generated,
+          approvalStatus: "Issued",
+          stampStatus: "Stamped",
+          stampedBy: stampSettings.defaultStampedBy,
+          stampDate: application.stampDate || application.approvalDate || new Date().toISOString().slice(0, 10),
+          stampImageFileName: stampSettings.stampImageFileName || "/uaeac-stamp-red.jpeg",
+          stampPosition: stampSettings.stampPositionDefault ?? "Bottom Right",
+          stampSize: stampSettings.stampSize ?? "Medium",
+          issuedDate: new Date().toISOString().slice(0, 10)
+        });
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : "Unable to issue stamped license document.");
+      }
+    }
     if (auditAction) {
       addAuditLog({
         module: "License Applications",

@@ -8,6 +8,7 @@ import { QuickExpenseEntry } from "@/components/quick-expense-entry";
 import { StatusBadge } from "@/components/status-badge";
 import { useFinanceData } from "@/components/finance-data-provider";
 import { getLicenseRevenueSummary } from "@/lib/license-revenue";
+import { getFinancialReporting } from "@/lib/financial-reporting";
 
 function SummaryList({ title, totals }: { title: string; totals: Record<string, number> }) {
   const max = Math.max(1, ...Object.values(totals));
@@ -18,9 +19,9 @@ function SummaryList({ title, totals }: { title: string; totals: Record<string, 
       <div className="mt-4 space-y-4">
         {Object.entries(totals).map(([label, amount]) => (
           <div key={label}>
-            <div className="flex items-center justify-between gap-4 text-sm">
-              <span className="font-medium text-steel">{label}</span>
-              <span className="font-semibold text-ink">{formatCurrency(amount)}</span>
+            <div className="flex min-w-0 items-center justify-between gap-4 text-sm">
+              <span className="min-w-0 break-words font-medium text-steel">{label}</span>
+              <span className="min-w-0 shrink-0 overflow-hidden whitespace-nowrap text-[clamp(0.8rem,1vw,1rem)] font-semibold text-ink tabular-nums">{formatCurrency(amount)}</span>
             </div>
             <div className="mt-2 h-2 rounded bg-black/5">
               <div className="h-2 rounded bg-gold" style={{ width: `${Math.max(12, (amount / max) * 100)}%` }} />
@@ -56,7 +57,7 @@ function coreDocumentsVerified(application: ReturnType<typeof useFinanceData>["l
 }
 
 export default function DashboardPage() {
-  const { expenses, reimbursements, receipts, costCenters, auditLogs, documents, appSettings, applicationImports, licenseApplications, licenseIntake, licenseReceipts } = useFinanceData();
+  const { expenses, reimbursements, revenues, receipts, costCenters, auditLogs, documents, appSettings, applicationImports, licenseApplications, licenseIntake, licenseReceipts, generatedLicenses } = useFinanceData();
   const dashboardMetrics = getDashboardMetrics(expenses, reimbursements);
   const byEvent = totalExpensesByField(expenses, "event");
   const byCategory = totalExpensesByField(expenses, "category");
@@ -95,9 +96,20 @@ export default function DashboardPage() {
   }, {});
   const largestCostCenterSpend = Object.entries(byCostCenter).sort((a, b) => b[1] - a[1])[0];
   const licenseRevenue = getLicenseRevenueSummary(licenseApplications);
+  const financialReporting = getFinancialReporting({ expenses, revenues, licenseApplications });
   const overdueReimbursements = reimbursements.filter((item) => item.dueDate && item.outstandingBalance > 0 && item.dueDate < "2026-06-02");
   const reimbursementsDue = reimbursements.filter((item) => item.outstandingBalance > 0 && item.status !== "Closed");
   const missingDocumentExpenses = expenses.filter((expense) => !documents.some((document) => document.linkedModule === "Expense" && document.linkedRecordId === expense.id));
+  const officialDocumentStatuses = [
+    ...documents.map((document) => document.approvalStatus ?? "Draft"),
+    ...generatedLicenses.map((license) => license.approvalStatus ?? "Draft"),
+    ...licenseReceipts.map((receipt) => receipt.approvalStatus ?? "Issued")
+  ];
+  const stampStatuses = [
+    ...documents.map((document) => document.stampStatus ?? "Not Available Yet"),
+    ...generatedLicenses.map((license) => license.stampStatus),
+    ...licenseReceipts.map((receipt) => receipt.stampStatus ?? "Not Available Yet")
+  ];
   const licenseSummary = {
     pendingPayment: licenseApplications.filter((application) => application.paymentStatus === "Pending Payment" || application.paymentStatus === "Partially Paid").length,
     paymentSubmittedAwaitingVerification: licenseApplications.filter((application) => application.paymentStatus === "Payment Submitted" || application.reviewStatus === "Awaiting Payment Verification").length,
@@ -128,6 +140,17 @@ export default function DashboardPage() {
       <div className="mb-6">
         <QuickExpenseEntry />
       </div>
+      <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
+        <h3 className="text-base font-semibold text-ink">Executive Financial Position</h3>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <MetricCard label="Total Revenue" value={formatCurrency(financialReporting.receivedRevenue)} detail="Confirmed received revenue" />
+          <MetricCard label="Total Expenses" value={formatCurrency(financialReporting.totalExpenses)} detail="Current expense register" />
+          <MetricCard label="Net Position" value={formatCurrency(financialReporting.netPosition)} detail={financialReporting.netPosition >= 0 ? "Net surplus" : "Net deficit"} />
+          <MetricCard label="Outstanding Revenue" value={formatCurrency(financialReporting.outstandingRevenue)} detail="Expected minus received" />
+          <MetricCard label="Collection Rate" value={`${financialReporting.collectionRate.toFixed(1)}%`} detail="Received / expected" />
+          <MetricCard label="Top Revenue Source" value={financialReporting.topRevenueSource} detail={financialReporting.revenueByCategory[0] ? formatCurrency(financialReporting.revenueByCategory[0].amount) : "No revenue"} />
+        </div>
+      </section>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <MetricCard label="Total expenses" value={formatCurrency(dashboardMetrics.totalExpenses)} detail="All tracked spend" />
         <MetricCard label="Approved expenses" value={formatCurrency(dashboardMetrics.totalApprovedExpenses)} detail="Approved spend" />
@@ -178,6 +201,12 @@ export default function DashboardPage() {
         <MetricCard label="Missing linked documents" value={String(missingDocumentExpenses.length)} detail="Expense records without documents" />
         <MetricCard label="Closed-period edit attempts" value={String(appSettings.closedPeriodEditAttempts ?? 0)} detail="Warnings triggered" />
       </div>
+      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Documents Pending Approval" value={String(officialDocumentStatuses.filter((status) => status === "Pending Approval").length)} detail="Awaiting approval action" />
+        <MetricCard label="Documents Awaiting Stamp" value={String(officialDocumentStatuses.filter((status) => status === "Approved Awaiting Stamp").length)} detail="Approved but not stamped" />
+        <MetricCard label="Stamped Documents" value={String(officialDocumentStatuses.filter((status) => status === "Stamped / Certified").length + stampStatuses.filter((status) => status === "Stamped").length)} detail="Certified records" />
+        <MetricCard label="Issued Documents" value={String(officialDocumentStatuses.filter((status) => status === "Issued").length)} detail="Officially issued" />
+      </div>
       <section className="mt-6 rounded border border-black/10 bg-white p-5 shadow-soft">
         <h3 className="text-base font-semibold text-ink">Treasury Summary</h3>
         <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -211,12 +240,12 @@ export default function DashboardPage() {
         <SummaryList title="Expenses by paid-by person" totals={byPaidBy} />
         <section className="rounded border border-black/10 bg-white p-5 shadow-soft">
           <h3 className="text-base font-semibold text-ink">Pending reimbursement widget</h3>
-          <p className="mt-3 text-2xl font-semibold text-ink">{formatCurrency(pendingReimbursements.reduce((sum, item) => sum + item.outstandingBalance, 0))}</p>
+          <p className="mt-3 min-w-0 max-w-full overflow-hidden whitespace-nowrap text-[clamp(0.8rem,1vw,1.5rem)] font-semibold leading-tight text-ink tabular-nums">{formatCurrency(pendingReimbursements.reduce((sum, item) => sum + item.outstandingBalance, 0))}</p>
           <div className="mt-4 space-y-2">
             {pendingReimbursements.map((item) => (
               <div className="flex items-center justify-between gap-3 text-sm" key={item.id}>
                 <span className="text-steel">{item.personOwed}</span>
-                <span className="font-semibold text-ink">{formatCurrency(item.outstandingBalance)}</span>
+                <span className="min-w-0 shrink-0 overflow-hidden whitespace-nowrap text-[clamp(0.8rem,1vw,1rem)] font-semibold text-ink tabular-nums">{formatCurrency(item.outstandingBalance)}</span>
               </div>
             ))}
           </div>
