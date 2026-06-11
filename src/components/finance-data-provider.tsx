@@ -28,7 +28,7 @@ import { reimbursementIdForExpense } from "@/lib/finance-calculations";
 import { ensureRecordIds, getNextSequentialId, isValidRecordId } from "@/lib/id-utils";
 import { parseMoneyInput } from "@/lib/money-utils";
 import { getMappedValue } from "@/lib/ocr-import";
-import type { AppSettings, ApplicationImport, AuditAction, AuditLog, AuditModule, CostCenter, Event, Expense, FinancialPeriod, GeneratedLicense, InternalNote, LicenseApplication, LicenseCompletionChecklist, LicenseDocumentChecklistItem, LicenseDocumentRequirement, LicenseFeeScheduleItem, LicenseIntake, LicenseReceipt, PaymentSettings, Person, ReceiptFile, ReceiptIntake, Reimbursement, Revenue, StampSettings, SupportingDocument } from "@/types";
+import type { AppSettings, ApplicationImport, AuditAction, AuditLog, AuditModule, CostCenter, Event, Expense, FinancialPeriod, GeneratedLicense, InternalNote, LicenseApplication, LicenseCompletionChecklist, LicenseDocumentChecklistItem, LicenseDocumentRequirement, LicenseFeeScheduleItem, LicenseIntake, LicensePendingFlag, LicenseReceipt, PaymentSettings, Person, ReceiptFile, ReceiptIntake, Reimbursement, Revenue, StampSettings, SupportingDocument } from "@/types";
 
 type ExpenseInput = Omit<Expense, "id">;
 type BatchExpenseInput = ExpenseInput & {
@@ -86,6 +86,8 @@ const storageKeys = {
 } as const;
 
 const LICENSE_YEAR_PREFIX = "UAEAC2026";
+const OFFICIAL_LICENSE_PREFIX = "UAEAC2026";
+const INTERNAL_LIN_PREFIX = "LIN-2026";
 const OFFICIAL_UAEAC_STAMP = "/uaeac-stamp-red.jpeg";
 const UNIVERSAL_REQUIRED_LICENSE_DOCUMENTS = ["Copy of Passport OR National ID document", "Passport-Sized Photograph"];
 const UNIVERSAL_OPTIONAL_LICENSE_DOCUMENTS = ["Current Medical Examination", "Professional Certifications Held", "Other Supporting Documents"];
@@ -186,6 +188,7 @@ type FinanceDataContextValue = {
   markLicenseReceiptDownloaded: (receipt: LicenseReceipt) => void;
   generateLicenseDraft: (application: LicenseApplication) => Promise<GeneratedLicense>;
   updateGeneratedLicense: (license: GeneratedLicense) => void;
+  deleteGeneratedLicense: (license: GeneratedLicense, action?: "Generated License Deleted" | "Duplicate Generated License Removed", notes?: string) => void;
   updateStampSettings: (settings: StampSettings) => void;
   removeDemoRecordsOnly: () => void;
   addLicenseFeeScheduleItem: (item: EntityInput<LicenseFeeScheduleItem>) => Promise<void>;
@@ -291,6 +294,133 @@ function normalizeStampSettings(settings: StampSettings): StampSettings {
   };
 }
 
+function normalizePersonName(value: string | undefined) {
+  if (!value) return value;
+  return value.replace(/\bpat\s+fiacco\b/gi, "Pat Fiacco");
+}
+
+function officialLicenseNumberFrom(value: string | null | undefined) {
+  if (!value) return "";
+  const official = value.match(/^UAEAC(\d{4})-(\d{5})$/);
+  if (official) return value;
+  const oldApplicationNumber = value.match(/^UAEAC(\d{4})(\d{5})$/);
+  if (oldApplicationNumber) return `UAEAC${oldApplicationNumber[1]}-${oldApplicationNumber[2]}`;
+  const oldGeneratedNumber = value.match(/^LIC-(\d{4})-(\d{6})$/);
+  if (oldGeneratedNumber) return `UAEAC${oldGeneratedNumber[1]}-${oldGeneratedNumber[2].slice(-5)}`;
+  return "";
+}
+
+function internalRegistryReferenceFrom(value: string | null | undefined) {
+  if (!value) return "";
+  if (/^LIN-\d{4}-\d{6}$/.test(value)) return value;
+  const oldGeneratedNumber = value.match(/^LIC-(\d{4})-(\d{6})$/);
+  if (oldGeneratedNumber) return `LIN-${oldGeneratedNumber[1]}-${oldGeneratedNumber[2]}`;
+  const officialNumber = value.match(/^UAEAC(\d{4})-?(\d{5})$/);
+  if (officialNumber) return `LIN-${officialNumber[1]}-${officialNumber[2].padStart(6, "0")}`;
+  return "";
+}
+
+function nextOfficialLicenseNumber(records: Array<{ id?: string | null; lin?: string | null }>) {
+  const highestNumber = records.reduce((highest, record) => {
+    const official = officialLicenseNumberFrom(record.id) || officialLicenseNumberFrom(record.lin);
+    const match = official.match(/^UAEAC\d{4}-(\d{5})$/);
+    return match ? Math.max(highest, Number(match[1])) : highest;
+  }, 0);
+  return `${OFFICIAL_LICENSE_PREFIX}-${String(highestNumber + 1).padStart(5, "0")}`;
+}
+
+function nextInternalRegistryReference(records: Array<{ id?: string | null; lin?: string | null }>) {
+  const highestNumber = records.reduce((highest, record) => {
+    const internalReference = internalRegistryReferenceFrom(record.lin) || internalRegistryReferenceFrom(record.id);
+    const match = internalReference.match(/^LIN-\d{4}-(\d{6})$/);
+    return match ? Math.max(highest, Number(match[1])) : highest;
+  }, 0);
+  return `${INTERNAL_LIN_PREFIX}-${String(highestNumber + 1).padStart(6, "0")}`;
+}
+
+function nextGeneratedLicenseRecordId(sequence: number) {
+  return `GLR-2026-${String(sequence).padStart(6, "0")}`;
+}
+
+function getNextGeneratedLicenseRecordId(records: GeneratedLicense[]) {
+  const highest = records.reduce((max, license) => {
+    const match = license.generatedLicenseRecordId?.match(/^GLR-2026-(\d{6})$/);
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+  return nextGeneratedLicenseRecordId(highest + 1);
+}
+
+function normalizeGeneratedLicenseNumbers(licenses: GeneratedLicense[]) {
+  const usedOfficialNumbers = new Set<string>();
+  const usedInternalReferences = new Set<string>();
+  const usedRecordIds = new Set<string>();
+  let nextOfficialSequence = licenses.reduce((highest, license) => {
+    const official = officialLicenseNumberFrom(license.id) || officialLicenseNumberFrom(license.lin);
+    const match = official.match(/^UAEAC\d{4}-(\d{5})$/);
+    return match ? Math.max(highest, Number(match[1])) : highest;
+  }, 0);
+  let nextInternalSequence = licenses.reduce((highest, license) => {
+    const internalReference = internalRegistryReferenceFrom(license.lin) || internalRegistryReferenceFrom(license.id);
+    const match = internalReference.match(/^LIN-\d{4}-(\d{6})$/);
+    return match ? Math.max(highest, Number(match[1])) : highest;
+  }, 0);
+  let nextRecordSequence = licenses.reduce((highest, license) => {
+    const match = license.generatedLicenseRecordId?.match(/^GLR-2026-(\d{6})$/);
+    return match ? Math.max(highest, Number(match[1])) : highest;
+  }, 0);
+
+  function nextOfficial() {
+    let value = "";
+    do {
+      nextOfficialSequence += 1;
+      value = `${OFFICIAL_LICENSE_PREFIX}-${String(nextOfficialSequence).padStart(5, "0")}`;
+    } while (usedOfficialNumbers.has(value));
+    usedOfficialNumbers.add(value);
+    return value;
+  }
+
+  function nextInternal() {
+    let value = "";
+    do {
+      nextInternalSequence += 1;
+      value = `${INTERNAL_LIN_PREFIX}-${String(nextInternalSequence).padStart(6, "0")}`;
+    } while (usedInternalReferences.has(value));
+    usedInternalReferences.add(value);
+    return value;
+  }
+
+  function nextRecordId() {
+    let value = "";
+    do {
+      nextRecordSequence += 1;
+      value = nextGeneratedLicenseRecordId(nextRecordSequence);
+    } while (usedRecordIds.has(value));
+    usedRecordIds.add(value);
+    return value;
+  }
+
+  return licenses.map((license) => {
+    const official = officialLicenseNumberFrom(license.lin) || officialLicenseNumberFrom(license.id);
+    const internalReference = /^LIN-\d{4}-\d{6}$/.test(license.lin) ? license.lin : internalRegistryReferenceFrom(license.id) || internalRegistryReferenceFrom(license.lin);
+    const nextOfficialNumber = official || nextOfficial();
+    const nextInternalReference = internalReference && !usedInternalReferences.has(internalReference) ? internalReference : nextInternal();
+    const recordId = license.generatedLicenseRecordId && !usedRecordIds.has(license.generatedLicenseRecordId) ? license.generatedLicenseRecordId : nextRecordId();
+    usedOfficialNumbers.add(nextOfficialNumber);
+    usedInternalReferences.add(nextInternalReference);
+    usedRecordIds.add(recordId);
+
+    return {
+      ...license,
+      generatedLicenseRecordId: recordId,
+      id: nextOfficialNumber,
+      lin: nextInternalReference,
+      approvedBy: normalizePersonName(license.approvedBy),
+      stampedBy: normalizePersonName(license.stampedBy),
+      issuedBy: normalizePersonName(license.issuedBy) ?? license.issuedBy
+    };
+  });
+}
+
 function documentRegisterEntryForLicense(license: GeneratedLicense, id: string): SupportingDocument {
   return {
     id,
@@ -355,6 +485,11 @@ function normalizeLicenseApplicationFields(application: LicenseApplication): Lic
     fullLegalName: application.fullLegalName || application.applicantFullName,
     passportNumber: application.passportNumber || application.identificationNumber,
     identificationNumber: application.identificationNumber || application.passportNumber || application.nationalIdNumber || "",
+    reviewedBy: normalizePersonName(application.reviewedBy) ?? application.reviewedBy,
+    chiefReviewer: normalizePersonName(application.chiefReviewer) ?? application.chiefReviewer,
+    stampedBy: normalizePersonName(application.stampedBy) ?? application.stampedBy,
+    approvedBy: normalizePersonName(application.approvedBy),
+    approvedBySignatureName: normalizePersonName(application.approvedBySignatureName),
     applicationOrigin: application.applicationOrigin ?? "Manual Entry",
     supportingDocumentFileNames: application.supportingDocumentFileNames ?? [],
     documentChecklistSnapshot: application.documentChecklistSnapshot?.map((item) => ({
@@ -534,29 +669,39 @@ function coreLicenseDocumentsVerified(application: LicenseApplication) {
 }
 
 function licenseIssueBlockers(application: LicenseApplication) {
-  const documents = application.documentChecklistSnapshot ?? [];
-  const idDocument = documents.find((item) => item.documentName.toLowerCase().includes("passport") || item.documentName.toLowerCase().includes("national id"));
-  const photoDocument = documents.find((item) => item.documentName.toLowerCase().includes("photograph") || item.documentName.toLowerCase().includes("photo"));
   const blockers: string[] = [];
 
-  if (idDocument?.verificationStatus !== "Verified") {
-    blockers.push("Passport or National ID document must be verified before license issuance.");
+  if (!application.passportNumber && !application.nationalIdNumber && !application.identificationNumber) {
+    blockers.push("Passport Number or National ID field is required before license generation.");
   }
-  if (photoDocument?.verificationStatus !== "Verified") {
-    blockers.push("Passport-sized photograph must be verified before license issuance.");
+  if (!(application.fullLegalName || application.applicantFullName).trim()) {
+    blockers.push("Full Legal Name is required before license generation.");
+  }
+  if (!licenseCategoryLabel(application)) {
+    blockers.push("License category is required before license generation.");
   }
   if (!licensePaymentConfirmed(application)) {
     blockers.push("Payment must be verified, waived, or manually confirmed before license issuance.");
-  }
-  if (!application.approvalDate || !application.chiefReviewer) {
-    blockers.push("Chief approval information is incomplete.");
   }
 
   return blockers;
 }
 
 function licensePaymentConfirmed(application: LicenseApplication) {
-  return application.paymentStatus === "Paid" || application.paymentStatus === "Waived" || application.paymentConfirmationType === "Cash Paid" || application.paymentConfirmationType === "Manually Paid" || application.paymentConfirmationType === "Admin Ready Override";
+  return application.paymentStatus === "Paid" || application.paymentStatus === "Payment Verified" || application.paymentStatus === "Waived" || application.paymentConfirmationType === "Cash Paid" || application.paymentConfirmationType === "Manually Paid" || application.paymentConfirmationType === "Admin Ready Override" || application.paymentConfirmationType === "Waived";
+}
+
+function pendingFlagsForLicenseApplication(application: LicenseApplication): LicensePendingFlag[] {
+  const documents = application.documentChecklistSnapshot ?? [];
+  const idDocument = documents.find((item) => item.documentName.toLowerCase().includes("passport") || item.documentName.toLowerCase().includes("national id"));
+  const requiredDocumentsPending = documents.filter((item) => item.required).some((item) => item.verificationStatus !== "Verified");
+  return [
+    ...(!application.applicantPhotoFileName ? ["Photo Pending" as const] : []),
+    ...(idDocument?.verificationStatus !== "Verified" || requiredDocumentsPending ? ["Documents Pending" as const] : []),
+    ...((application.summaryReviewStatus ?? "Pending") !== "Complete" ? ["Summary Review Pending" as const] : []),
+    ...(application.stampStatus !== "Stamped" ? ["Stamp Pending" as const] : []),
+    ...((application.licenseEmailStatus ?? "Not Sent") !== "Sent" ? ["Email Pending" as const] : [])
+  ];
 }
 
 function nextNoteId() {
@@ -651,7 +796,7 @@ function readStoredLicenseReceipts() {
 }
 
 function readStoredGeneratedLicenses() {
-  return ensureRecordIds(readStoredArray<GeneratedLicense>(storageKeys.generatedLicenses, initialGeneratedLicenses), "LIC-2026");
+  return normalizeGeneratedLicenseNumbers(readStoredArray<GeneratedLicense>(storageKeys.generatedLicenses, initialGeneratedLicenses));
 }
 
 function readStoredLicenseFeeSchedule() {
@@ -713,7 +858,7 @@ function sanitizeBackupRecords(backup: BackupData): BackupData {
     licenseApplications: ensureLicenseApplicationNumbers(backup.licenseApplications),
     licenseIntake: ensureRecordIds(backup.licenseIntake, "INT"),
     licenseReceipts: ensureRecordIds(backup.licenseReceipts ?? [], "RCT-2026"),
-    generatedLicenses: ensureRecordIds(backup.generatedLicenses ?? [], "LIC-2026"),
+    generatedLicenses: normalizeGeneratedLicenseNumbers(backup.generatedLicenses ?? []),
     stampSettings: normalizeStampSettings(backup.stampSettings ?? initialStampSettings),
     licenseFeeSchedule: ensureRecordIds(backup.licenseFeeSchedule, "LFS"),
     licenseDocumentRequirements: ensureRecordIds(backup.licenseDocumentRequirements, "LDR"),
@@ -806,7 +951,7 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
   const [licenseApplications, setLicenseApplications] = useState<LicenseApplication[]>(() => ensureLicenseApplicationNumbers(initialLicenseApplications));
   const [licenseIntake, setLicenseIntake] = useState<LicenseIntake[]>(() => ensureRecordIds(initialLicenseIntake, "INT"));
   const [licenseReceipts, setLicenseReceipts] = useState<LicenseReceipt[]>(() => ensureRecordIds(initialLicenseReceipts, "RCT-2026"));
-  const [generatedLicenses, setGeneratedLicenses] = useState<GeneratedLicense[]>(() => ensureRecordIds(initialGeneratedLicenses, "LIC-2026"));
+  const [generatedLicenses, setGeneratedLicenses] = useState<GeneratedLicense[]>(() => normalizeGeneratedLicenseNumbers(initialGeneratedLicenses));
   const [stampSettings, setStampSettings] = useState<StampSettings>(initialStampSettings);
   const [licenseFeeSchedule, setLicenseFeeSchedule] = useState<LicenseFeeScheduleItem[]>(() => ensureRecordIds(initialLicenseFeeSchedule, "LFS"));
   const [licenseDocumentRequirements, setLicenseDocumentRequirements] = useState<LicenseDocumentRequirement[]>(() => ensureRecordIds(initialLicenseDocumentRequirements, "LDR"));
@@ -1815,17 +1960,26 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
           throw new Error(blockers.join("\n"));
         }
         const issueDate = application.approvalDate || new Date().toISOString().slice(0, 10);
+        const licenseId = officialLicenseNumberFrom(application.licenseIssueNumber) || nextOfficialLicenseNumber(generatedLicenses);
+        const internalRegistryReference = nextInternalRegistryReference(generatedLicenses);
+        const pendingFlags = pendingFlagsForLicenseApplication(application);
         const generatedLicense: GeneratedLicense = {
-          id: getNextSequentialId(generatedLicenses, "LIC-2026"),
+          generatedLicenseRecordId: getNextGeneratedLicenseRecordId(generatedLicenses),
+          id: licenseId,
           applicationId: application.id,
-          lin: application.licenseIssueNumber,
-          applicantName: application.applicantFullName,
+          lin: internalRegistryReference,
+          applicantName: application.fullLegalName || application.applicantFullName,
+          applicantEmail: application.email,
+          applicantPhotoFileName: application.applicantPhotoFileName,
+          nationality: application.nationality,
+          dateOfBirth: application.dateOfBirth,
+          passportNumber: application.passportNumber || application.nationalIdNumber || application.identificationNumber,
           categoryLabel: licenseCategoryLabel(application),
           dateIssued: issueDate,
           expiryDate: addValidity(issueDate, application.validityPeriod),
           stampStatus: "Awaiting Stamp",
-          approvalStatus: "Approved Awaiting Stamp",
-          approvedBy: application.approvedBy || application.chiefReviewer,
+          approvalStatus: pendingFlags.length ? "Generated With Pending Items" : "Approved Awaiting Stamp",
+          approvedBy: normalizePersonName(application.approvedBy || application.chiefReviewer),
           approvalTitle: "UAE Athletic Commission",
           approvalDate: application.approvalDate || issueDate,
           stampedBy: "",
@@ -1834,56 +1988,103 @@ export function FinanceDataProvider({ children }: { children: ReactNode }) {
           stampPosition: stampSettings.stampPositionDefault ?? "Bottom Right",
           stampSize: stampSettings.stampSize ?? "Medium",
           issuedDate: "",
-          issuedBy: application.approvedBy || application.chiefReviewer,
+          issuedBy: normalizePersonName(application.approvedBy || application.chiefReviewer) || "Pat Fiacco",
           issuedByTitle: "UAE Athletic Commission",
           printStatus: "Draft",
+          cardId: `CARD-${licenseId}`,
+          cardFrontLayout: "Future UAEAC wallet card front layout",
+          cardBackLayout: "Future UAEAC wallet card back layout",
+          photoStatus: application.applicantPhotoFileName ? "Photo Uploaded to License" : application.photoStatus ?? "Photo Missing",
+          summaryReviewStatus: application.summaryReviewStatus ?? "Pending",
+          summaryReviewedBy: application.summaryReviewedBy,
+          summaryReviewedDate: application.summaryReviewedDate,
+          summaryReviewNotes: application.summaryReviewNotes,
+          licenseEmailStatus: application.licenseEmailStatus ?? "Not Sent",
+          emailPreparedDate: application.emailPreparedDate,
+          emailSentDate: application.emailSentDate,
+          emailNotes: application.emailNotes,
+          pendingFlags,
+          pendingNotes: pendingFlags.length ? "License generated with pending administrative items. Review before final external sending." : "",
           createdAt: new Date().toISOString()
         };
         setGeneratedLicenses((current) => [generatedLicense, ...current]);
         setLicenseApplications((current) => current.map((item) => (item.id === application.id ? {
           ...item,
           stampStatus: "Awaiting Stamp",
-          licenseStatus: "Approved Awaiting Stamp",
+          licenseStatus: pendingFlags.length ? "Generated With Pending Items" : "Approved Awaiting Stamp",
           licenseExpiryDate: generatedLicense.expiryDate,
+          pendingFlags,
+          pendingNotes: pendingFlags.length ? "License generated with pending administrative items. Review before final external sending." : "",
           stampDate: "",
           stampedBy: ""
         } : item)));
         setDocuments((current) => [documentRegisterEntryForLicense(generatedLicense, getNextSequentialId(current, "DOC")), ...current]);
-        audit("License Applications", application.id, application.applicantFullName, "License Draft Generated", null, generatedLicense, `Generated ${generatedLicense.id}.`);
+        audit("License Applications", application.id, application.applicantFullName, pendingFlags.length ? "License Generated With Pending Items" : "License Generated From Application", null, generatedLicense, pendingFlags.length ? `Generated ${generatedLicense.id} with pending flags: ${pendingFlags.join(", ")}.` : `Generated ${generatedLicense.id}.`);
         return generatedLicense;
       },
       updateGeneratedLicense: (license) => {
-        const previous = generatedLicenses.find((item) => item.id === license.id);
-        setGeneratedLicenses((current) => current.map((item) => (item.id === license.id ? license : item)));
+        const normalizedLicense = normalizeGeneratedLicenseNumbers([license])[0];
+        const matchesLicenseRecord = (item: GeneratedLicense) => license.generatedLicenseRecordId
+          ? item.generatedLicenseRecordId === license.generatedLicenseRecordId
+          : item.applicationId === license.applicationId || item.id === license.id;
+        const previous = generatedLicenses.find(matchesLicenseRecord);
+        setGeneratedLicenses((current) => current.map((item) => (matchesLicenseRecord(item) ? normalizedLicense : item)));
         setDocuments((current) => {
-          const existing = current.find((document) => document.linkedModule === "License Application" && document.linkedRecordId === license.applicationId && document.title.includes(license.lin));
-          const nextDocument = documentRegisterEntryForLicense(license, existing?.id ?? getNextSequentialId(current, "DOC"));
+          const existing = current.find((document) => document.linkedModule === "License Application" && document.linkedRecordId === normalizedLicense.applicationId && document.title.includes(normalizedLicense.lin));
+          const nextDocument = documentRegisterEntryForLicense(normalizedLicense, existing?.id ?? getNextSequentialId(current, "DOC"));
           return existing ? current.map((document) => (document.id === existing.id ? nextDocument : document)) : [nextDocument, ...current];
         });
-        if (license.approvalStatus === "Stamped / Certified" || license.stampStatus === "Stamped") {
-          setLicenseApplications((current) => current.map((item) => (item.id === license.applicationId ? { ...item, stampStatus: "Stamped", stampDate: license.stampDate ?? item.stampDate, stampedBy: license.stampedBy ?? item.stampedBy } : item)));
+        if (normalizedLicense.approvalStatus === "Stamped / Certified" || normalizedLicense.stampStatus === "Stamped") {
+          setLicenseApplications((current) => current.map((item) => (item.id === normalizedLicense.applicationId ? { ...item, stampStatus: "Stamped", stampDate: normalizedLicense.stampDate ?? item.stampDate, stampedBy: normalizedLicense.stampedBy ?? item.stampedBy } : item)));
         }
-        if (license.approvalStatus === "Issued") {
-          setLicenseApplications((current) => current.map((item) => (item.id === license.applicationId ? { ...item, stampStatus: "Stamped", licenseStatus: "Issued", reviewStatus: "License Issued", stampDate: license.stampDate ?? item.stampDate, stampedBy: license.stampedBy ?? item.stampedBy } : item)));
+        if (normalizedLicense.applicantPhotoFileName || normalizedLicense.photoStatus || normalizedLicense.summaryReviewStatus || normalizedLicense.licenseEmailStatus) {
+          setLicenseApplications((current) => current.map((item) => (item.id === normalizedLicense.applicationId ? {
+            ...item,
+            applicantPhotoFileName: normalizedLicense.applicantPhotoFileName ?? item.applicantPhotoFileName,
+            photoStatus: normalizedLicense.photoStatus ?? item.photoStatus,
+            summaryReviewStatus: normalizedLicense.summaryReviewStatus ?? item.summaryReviewStatus,
+            summaryReviewedBy: normalizedLicense.summaryReviewedBy ?? item.summaryReviewedBy,
+            summaryReviewedDate: normalizedLicense.summaryReviewedDate ?? item.summaryReviewedDate,
+            summaryReviewNotes: normalizedLicense.summaryReviewNotes ?? item.summaryReviewNotes,
+            licenseEmailStatus: normalizedLicense.licenseEmailStatus ?? item.licenseEmailStatus,
+            emailPreparedDate: normalizedLicense.emailPreparedDate ?? item.emailPreparedDate,
+            emailSentDate: normalizedLicense.emailSentDate ?? item.emailSentDate,
+            emailNotes: normalizedLicense.emailNotes ?? item.emailNotes,
+            completionChecklist: {
+              ...item.completionChecklist,
+              photoReceived: Boolean(normalizedLicense.applicantPhotoFileName) || item.completionChecklist.photoReceived
+            },
+            updatedAt: new Date().toISOString()
+          } : item)));
+        }
+        if (normalizedLicense.approvalStatus === "Issued") {
+          setLicenseApplications((current) => current.map((item) => (item.id === normalizedLicense.applicationId ? { ...item, stampStatus: "Stamped", licenseStatus: "Issued", reviewStatus: "License Issued", stampDate: normalizedLicense.stampDate ?? item.stampDate, stampedBy: normalizedLicense.stampedBy ?? item.stampedBy } : item)));
         }
         const action: AuditAction =
-          previous?.approvalStatus !== license.approvalStatus && license.approvalStatus === "Pending Approval"
+          previous?.approvalStatus !== normalizedLicense.approvalStatus && normalizedLicense.approvalStatus === "Pending Approval"
             ? "Document Submitted for Approval"
-            : previous?.approvalStatus !== license.approvalStatus && license.approvalStatus === "Approved Awaiting Stamp"
+            : previous?.approvalStatus !== normalizedLicense.approvalStatus && normalizedLicense.approvalStatus === "Approved Awaiting Stamp"
               ? "Document Approved"
-              : previous?.approvalStatus !== license.approvalStatus && license.approvalStatus === "Rejected"
+              : previous?.approvalStatus !== normalizedLicense.approvalStatus && normalizedLicense.approvalStatus === "Rejected"
                 ? "Document Rejected"
-                : previous?.approvalStatus !== license.approvalStatus && license.approvalStatus === "Stamped / Certified"
+                : previous?.approvalStatus !== normalizedLicense.approvalStatus && normalizedLicense.approvalStatus === "Stamped / Certified"
                   ? "Document Certified With Stamp"
-                  : previous?.approvalStatus !== license.approvalStatus && license.approvalStatus === "Issued"
+                  : previous?.approvalStatus !== normalizedLicense.approvalStatus && normalizedLicense.approvalStatus === "Issued"
                     ? "License Issued With Stamp"
-                    : previous?.approvalStatus !== license.approvalStatus && license.approvalStatus === "Cancelled"
+                    : previous?.approvalStatus !== normalizedLicense.approvalStatus && normalizedLicense.approvalStatus === "Cancelled"
                       ? "Document Cancelled"
-                      : license.printStatus === "Printed" ? "License Printed / Downloaded" : "License Previewed";
-        audit("License Applications", license.applicationId, license.applicantName, action, previous, license);
-        if (previous?.stampStatus !== "Stamped" && license.stampStatus === "Stamped") {
-          audit("License Applications", license.applicationId, license.applicantName, "Stamp Applied", previous, license, `Applied ${license.stampImageFileName || OFFICIAL_UAEAC_STAMP}.`);
+                      : normalizedLicense.printStatus === "Printed" ? "License Printed / Downloaded" : "License Previewed";
+        audit("License Applications", normalizedLicense.applicationId, normalizedLicense.applicantName, action, previous, normalizedLicense);
+        if (previous?.stampStatus !== "Stamped" && normalizedLicense.stampStatus === "Stamped") {
+          audit("License Applications", normalizedLicense.applicationId, normalizedLicense.applicantName, "Stamp Applied", previous, normalizedLicense, `Applied ${normalizedLicense.stampImageFileName || OFFICIAL_UAEAC_STAMP}.`);
         }
+      },
+      deleteGeneratedLicense: (license, action = "Generated License Deleted", notes = "Removed generated license record only. Linked application and applicant records were preserved.") => {
+        const matchesLicenseRecord = (item: GeneratedLicense) => license.generatedLicenseRecordId
+          ? item.generatedLicenseRecordId === license.generatedLicenseRecordId
+          : item.applicationId === license.applicationId && item.id === license.id && item.lin === license.lin;
+        setGeneratedLicenses((current) => current.filter((item) => !matchesLicenseRecord(item)));
+        audit("License Applications", license.applicationId, license.applicantName, action, license, null, notes);
       },
       updateStampSettings: (settings) => {
         const nextSettings = normalizeStampSettings({ ...settings, updatedAt: new Date().toISOString() });

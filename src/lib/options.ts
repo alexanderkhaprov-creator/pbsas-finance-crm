@@ -61,7 +61,7 @@ export const documentTypes: DocumentType[] = [
 export const documentLinkedModules: DocumentLinkedModule[] = ["Expense", "Receipt", "Reimbursement", "Revenue", "Event", "Cost Center", "Person", "License Application", "License/Application future use"];
 
 export const documentVerificationStatuses: DocumentVerificationStatus[] = ["Unchecked", "Verified", "Needs Clarification", "Rejected"];
-export const documentApprovalStatuses: DocumentApprovalStatus[] = ["Draft", "Pending Approval", "Approved Awaiting Stamp", "Stamped / Certified", "Issued", "Rejected", "Cancelled"];
+export const documentApprovalStatuses: DocumentApprovalStatus[] = ["Draft", "Pending Approval", "Generated With Pending Items", "Approved Awaiting Stamp", "Stamped / Certified", "Issued", "Rejected", "Cancelled"];
 
 export const confidentialityLevels: ConfidentialityLevel[] = ["Public/Internal", "Finance Only", "Board Only", "Restricted"];
 
@@ -95,7 +95,7 @@ export const stampStatuses: StampStatus[] = ["Not Available Yet", "Awaiting Stam
 export const stampPositions: StampPosition[] = ["Bottom Right", "Bottom Center", "Bottom Left", "Near Signature", "Custom"];
 export const stampSizes: StampSize[] = ["Small", "Medium", "Large"];
 
-export const licenseStatuses: LicenseStatus[] = ["Application Registered", "Awaiting Payment", "Awaiting Review", "Approved Awaiting Stamp", "Issued", "Rejected", "Expired", "Suspended"];
+export const licenseStatuses: LicenseStatus[] = ["Application Registered", "Awaiting Payment", "Awaiting Review", "Generated With Pending Items", "Approved Awaiting Stamp", "Issued", "Rejected", "Expired", "Suspended"];
 
 export const licenseInvoiceStatuses: LicenseInvoiceStatus[] = ["Not Generated", "Invoice Required", "Draft", "Generated", "Invoice Sent", "Sent", "Paid", "Cancelled", "Waived"];
 

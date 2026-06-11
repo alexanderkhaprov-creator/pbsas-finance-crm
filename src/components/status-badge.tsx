@@ -61,10 +61,16 @@ export function StatusBadge({ value }: { value: string }) {
     "Awaiting Payment": "border-amber-200 bg-amber-50 text-amber-800",
     "Awaiting Review": "border-amber-200 bg-amber-50 text-amber-800",
     "Approved Awaiting Stamp": "border-blue-200 bg-blue-50 text-blue-700",
+    "Generated With Pending Items": "border-amber-200 bg-amber-50 text-amber-800",
+    "Expiring Soon": "border-amber-200 bg-amber-50 text-amber-800",
     "Pending Approval": "border-amber-200 bg-amber-50 text-amber-800",
     "Stamped / Certified": "border-emerald-200 bg-emerald-50 text-emerald-700",
     Issued: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    Expired: "border-zinc-500 bg-zinc-800 text-white",
+    Expired: "border-red-200 bg-red-50 text-red-700",
+    "Renewal Pending": "border-amber-200 bg-amber-50 text-amber-800",
+    "Renewal Under Review": "border-blue-200 bg-blue-50 text-blue-700",
+    Renewed: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Renewal Rejected": "border-red-200 bg-red-50 text-red-700",
     Suspended: "border-red-200 bg-red-50 text-red-700",
     "Not Generated": "border-zinc-300 bg-zinc-100 text-zinc-700",
     "Invoice Required": "border-amber-200 bg-amber-50 text-amber-800",
@@ -163,14 +169,34 @@ export function StatusBadge({ value }: { value: string }) {
     "Document Cancelled": "border-red-200 bg-red-50 text-red-700",
     "License Stamped": "border-emerald-200 bg-emerald-50 text-emerald-700",
     "License Issued With Stamp": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "License Verification Viewed": "border-blue-200 bg-blue-50 text-blue-700",
+    "License Renewal Started": "border-amber-200 bg-amber-50 text-amber-800",
+    "License Renewed": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Wallet Card Printed": "border-blue-200 bg-blue-50 text-blue-700",
+    "Applicant Photo Uploaded": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Summary Review Completed": "border-emerald-200 bg-emerald-50 text-emerald-700",
     "Document Certified With Stamp": "border-emerald-200 bg-emerald-50 text-emerald-700",
-    "Treasury Settlement Recorded": "border-blue-200 bg-blue-50 text-blue-700"
+    "Treasury Settlement Recorded": "border-blue-200 bg-blue-50 text-blue-700",
+    "Photo Missing": "border-red-200 bg-red-50 text-red-700",
+    "Photo Requested": "border-amber-200 bg-amber-50 text-amber-800",
+    "Photo Received": "border-blue-200 bg-blue-50 text-blue-700",
+    "Photo Uploaded to License": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Photo Pending": "border-amber-200 bg-amber-50 text-amber-800",
+    "Documents Pending": "border-amber-200 bg-amber-50 text-amber-800",
+    "Summary Review Pending": "border-amber-200 bg-amber-50 text-amber-800",
+    "Stamp Pending": "border-amber-200 bg-amber-50 text-amber-800",
+    "Email Pending": "border-amber-200 bg-amber-50 text-amber-800",
+    "Possible Duplicate": "border-amber-200 bg-amber-50 text-amber-800",
+    "Ready To Send": "border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Follow-up Required": "border-amber-200 bg-amber-50 text-amber-800",
+    Complete: "border-emerald-200 bg-emerald-50 text-emerald-700"
   };
   const tone = tones[value] ?? "border-zinc-200 bg-zinc-50 text-zinc-700";
   const labels: Record<string, string> = {
     "Converted to Expense": "Expense Registered",
     "Converted To Expense": "Expense Registered",
     "Ready To Convert Receipt": "Ready To Register Receipt",
+    "Stamped / Certified": "Certified",
     "Treasury Settlement Recorded": "Reimbursement Payment Recorded"
   };
 

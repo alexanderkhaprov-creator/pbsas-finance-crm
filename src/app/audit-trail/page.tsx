@@ -81,8 +81,8 @@ export default function AuditTrailPage() {
               <tr>{["Audit ID", "Timestamp", "Module", "Record ID", "Record label", "Action", "Changed by", "Previous value summary", "New value summary", "Notes"].map((heading) => <th className="px-4 py-3 font-semibold" key={heading}>{heading}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-black/10">
-              {filteredLogs.map((log) => (
-                <tr className="align-top hover:bg-[#fafaf8]" key={log.id}>
+              {filteredLogs.map((log, index) => (
+                <tr className="align-top hover:bg-[#fafaf8]" key={`audit-${log.id}-${index}`}>
                   <td className="px-4 py-4 font-medium text-ink">{log.id}</td>
                   <td className="px-4 py-4 text-steel">{formatDate(log.timestamp)} {log.timestamp.slice(11, 16)}</td>
                   <td className="px-4 py-4 text-steel">{displayModule(log.module)}</td>

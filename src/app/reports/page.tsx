@@ -7,6 +7,7 @@ import { sumOutstanding, totalExpensesByField } from "@/lib/finance-calculations
 import { getFinancialReporting } from "@/lib/financial-reporting";
 import { formatCurrency } from "@/lib/format";
 import { getLicenseRevenueSummary } from "@/lib/license-revenue";
+import { getLicenseOperationalStatus } from "@/lib/license-utils";
 
 function ExportButtons() {
   return (
@@ -51,6 +52,36 @@ function coreDocumentStatus(application: ReturnType<typeof useFinanceData>["lice
     idVerified: idDocument?.verificationStatus === "Verified",
     photoVerified: photoDocument?.verificationStatus === "Verified"
   };
+}
+
+function photoStatus(application: ReturnType<typeof useFinanceData>["licenseApplications"][number] | undefined, license: ReturnType<typeof useFinanceData>["generatedLicenses"][number]) {
+  if (license.photoStatus) return license.photoStatus;
+  if (application?.photoStatus) return application.photoStatus;
+  if (license.applicantPhotoFileName || application?.applicantPhotoFileName) return "Photo Uploaded to License";
+  if (application?.completionChecklist.photoReceived) return "Photo Received";
+  return "Photo Missing";
+}
+
+function licenseReadyToSend(application: ReturnType<typeof useFinanceData>["licenseApplications"][number] | undefined, license: ReturnType<typeof useFinanceData>["generatedLicenses"][number]) {
+  const paymentReady = application ? licensePaymentConfirmed(application) : false;
+  return (license.approvalStatus === "Issued" || license.approvalStatus === "Stamped / Certified")
+    && license.stampStatus === "Stamped"
+    && paymentReady
+    && Boolean(application && coreDocumentStatus(application).idVerified)
+    && photoStatus(application, license) === "Photo Uploaded to License"
+    && (license.summaryReviewStatus ?? application?.summaryReviewStatus) === "Complete";
+}
+
+function licensePaymentConfirmed(application: ReturnType<typeof useFinanceData>["licenseApplications"][number]) {
+  const paymentStatus = application.paymentStatus as string;
+  return paymentStatus === "Paid"
+    || paymentStatus === "Payment Verified"
+    || paymentStatus === "Verified"
+    || paymentStatus === "Waived"
+    || application.paymentConfirmationType === "Manually Paid"
+    || application.paymentConfirmationType === "Cash Paid"
+    || application.paymentConfirmationType === "Admin Ready Override"
+    || application.paymentConfirmationType === "Waived";
 }
 
 export default function ReportsPage() {
@@ -178,6 +209,39 @@ export default function ReportsPage() {
     "Approved awaiting stamp": licenseApplications.filter((application) => application.licenseStatus === "Approved Awaiting Stamp" || application.stampStatus === "Awaiting Stamp").length,
     "Issued license registry": generatedLicenses.length,
     "Rejected applications with reasons": licenseApplications.filter((application) => (application.reviewStatus === "Rejected" || application.licenseStatus === "Rejected") && application.rejectionReason).length
+  };
+  const licenseStatusReport = generatedLicenses.reduce<Record<string, number>>((totals, license) => {
+    const status = getLicenseOperationalStatus(license);
+    totals[status] = (totals[status] ?? 0) + 1;
+    return totals;
+  }, {});
+  const expiringLicensesReport = {
+    "Expiring within 90 days": generatedLicenses.filter((license) => getLicenseOperationalStatus(license) === "Expiring Soon").length,
+    "Expired licenses": generatedLicenses.filter((license) => getLicenseOperationalStatus(license) === "Expired").length
+  };
+  const renewalReport = {
+    "Renewal pending": generatedLicenses.filter((license) => license.renewalStatus === "Renewal Pending").length,
+    "Renewal under review": generatedLicenses.filter((license) => license.renewalStatus === "Renewal Under Review").length,
+    Renewed: generatedLicenses.filter((license) => license.renewalStatus === "Renewed").length,
+    "Total renewals": generatedLicenses.reduce((sum, license) => sum + (license.renewalCount ?? 0), 0)
+  };
+  const verificationRegister = {
+    "Verification views": auditLogs.filter((log) => log.action === "License Verification Viewed").length,
+    "Generated licenses available": generatedLicenses.length
+  };
+  const issuedLicenseRegister = {
+    "Issued licenses": generatedLicenses.filter((license) => license.approvalStatus === "Issued").length,
+    "Stamped / Certified": generatedLicenses.filter((license) => license.approvalStatus === "Stamped / Certified" || license.stampStatus === "Stamped").length
+  };
+  const licenseSendReports = {
+    "Generated With Pending Items": generatedLicenses.filter((license) => license.approvalStatus === "Generated With Pending Items" || (license.pendingFlags ?? []).length > 0).length,
+    "Photo Pending": generatedLicenses.filter((license) => (license.pendingFlags ?? []).includes("Photo Pending") || photoStatus(licenseApplications.find((application) => application.id === license.applicationId), license) !== "Photo Uploaded to License").length,
+    "Documents Pending": generatedLicenses.filter((license) => (license.pendingFlags ?? []).includes("Documents Pending")).length,
+    "Licenses Missing Photos": generatedLicenses.filter((license) => photoStatus(licenseApplications.find((application) => application.id === license.applicationId), license) === "Photo Missing").length,
+    "Licenses Ready To Send": generatedLicenses.filter((license) => licenseReadyToSend(licenseApplications.find((application) => application.id === license.applicationId), license)).length,
+    "Licenses Sent": generatedLicenses.filter((license) => (license.licenseEmailStatus ?? licenseApplications.find((application) => application.id === license.applicationId)?.licenseEmailStatus) === "Sent").length,
+    "Summary Review Pending": generatedLicenses.filter((license) => (license.summaryReviewStatus ?? licenseApplications.find((application) => application.id === license.applicationId)?.summaryReviewStatus) !== "Complete").length,
+    "Payment Confirmed But License Not Generated": licenseApplications.filter((application) => licensePaymentConfirmed(application) && !generatedLicenses.some((license) => license.applicationId === application.id)).length
   };
   const historicalMigrationReport = {
     "Historical migration": licenseApplications.filter((application) => application.applicationOrigin === "Historical Migration").length,
@@ -394,6 +458,12 @@ export default function ReportsPage() {
         <SummaryPanel title="Payment verification controls" totals={paymentVerificationReport} currency={false} />
         <SummaryPanel title="License receipts report" totals={licenseReceiptReport} />
         <SummaryPanel title="License workflow exceptions" totals={licenseExceptionReport} currency={false} />
+        <SummaryPanel title="License Status Report" totals={licenseStatusReport} currency={false} />
+        <SummaryPanel title="Expiring Licenses Report" totals={expiringLicensesReport} currency={false} />
+        <SummaryPanel title="Renewal Report" totals={renewalReport} currency={false} />
+        <SummaryPanel title="Verification Register" totals={verificationRegister} currency={false} />
+        <SummaryPanel title="Issued License Register" totals={issuedLicenseRegister} currency={false} />
+        <SummaryPanel title="License Pre-Sending Review" totals={licenseSendReports} currency={false} />
         <SummaryPanel title="Fee schedule summary" totals={feeScheduleSummary} />
         <SummaryPanel title="Applications by fee category" totals={applicationsByFeeCategory} currency={false} />
         <SummaryPanel title="Amounts due by category" totals={amountDueByCategory} />

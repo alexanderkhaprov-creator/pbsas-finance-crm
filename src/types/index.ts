@@ -183,6 +183,19 @@ export type AuditAction =
   | "License Stamped"
   | "License Issued"
   | "License Issued With Stamp"
+  | "License Verification Viewed"
+  | "License Renewal Started"
+  | "License Renewed"
+  | "Wallet Card Printed"
+  | "Applicant Photo Uploaded"
+  | "Summary Review Completed"
+  | "License Generated With Pending Items"
+  | "License Generated From Application"
+  | "Generated License Deleted"
+  | "Duplicate Generated License Removed"
+  | "Pending Flag Added"
+  | "Pending Flag Cleared"
+  | "Summary Review Opened From Generated License"
   | "Document Certified With Stamp"
   | "Treasury Settlement Recorded";
 export type DocumentType =
@@ -203,7 +216,9 @@ export type DocumentType =
 export type DocumentLinkedModule = "Expense" | "Receipt" | "Reimbursement" | "Revenue" | "Event" | "Cost Center" | "Person" | "License Application" | "License/Application future use";
 export type DocumentVerificationStatus = "Unchecked" | "Verified" | "Needs Clarification" | "Rejected";
 export type ConfidentialityLevel = "Public/Internal" | "Finance Only" | "Board Only" | "Restricted";
-export type DocumentApprovalStatus = "Draft" | "Pending Approval" | "Approved Awaiting Stamp" | "Stamped / Certified" | "Issued" | "Rejected" | "Cancelled";
+export type DocumentApprovalStatus = "Draft" | "Pending Approval" | "Generated With Pending Items" | "Approved Awaiting Stamp" | "Stamped / Certified" | "Issued" | "Rejected" | "Cancelled";
+export type LicenseRenewalStatus = "Renewal Pending" | "Renewal Under Review" | "Renewed" | "Renewal Rejected";
+export type LicensePendingFlag = "Photo Pending" | "Documents Pending" | "Summary Review Pending" | "Stamp Pending" | "Email Pending";
 
 export type AuditLog = {
   id: string;
@@ -266,9 +281,11 @@ export type LicenseReviewStatus = "New" | "Awaiting Payment" | "Awaiting Payment
 export type StampStatus = "Not Available Yet" | "Awaiting Stamp" | "Stamped" | "Not Required";
 export type StampPosition = "Bottom Right" | "Bottom Center" | "Bottom Left" | "Near Signature" | "Custom";
 export type StampSize = "Small" | "Medium" | "Large";
-export type LicenseStatus = "Application Registered" | "Awaiting Payment" | "Awaiting Review" | "Approved Awaiting Stamp" | "Issued" | "Rejected" | "Expired" | "Suspended";
+export type LicenseStatus = "Application Registered" | "Awaiting Payment" | "Awaiting Review" | "Generated With Pending Items" | "Approved Awaiting Stamp" | "Issued" | "Rejected" | "Expired" | "Suspended";
 export type LicenseInvoiceStatus = "Not Generated" | "Invoice Required" | "Draft" | "Generated" | "Invoice Sent" | "Sent" | "Paid" | "Cancelled" | "Waived";
 export type LicenseApplicationOrigin = "Historical Migration" | "New Application" | "Online Form" | "Online Application" | "Manual Entry";
+export type ApplicantPhotoStatus = "Photo Missing" | "Photo Requested" | "Photo Received" | "Photo Uploaded to License";
+export type LicenseEmailStatus = "Not Sent" | "Photo Requested" | "Ready To Send" | "Sent" | "Follow-up Required";
 export type LicenseIntakeStatus = "New" | "Awaiting Data Entry" | "Awaiting Review" | "Converted to Application" | "Rejected";
 export type OcrStatus = "Uploaded" | "Text Extracted" | "Mapping Review" | "Ready To Create Application" | "Ready To Convert Receipt" | "Converted To Application" | "Converted To Expense" | "Rejected";
 export type OcrConfidenceLevel = "High" | "Medium" | "Low" | "Manual Review Required";
@@ -475,6 +492,17 @@ export type LicenseApplication = {
   licenseExpiryDate?: string;
   approvedBy?: string;
   approvedBySignatureName?: string;
+  photoStatus?: ApplicantPhotoStatus;
+  summaryReviewStatus?: "Pending" | "Complete";
+  summaryReviewedBy?: string;
+  summaryReviewedDate?: string;
+  summaryReviewNotes?: string;
+  licenseEmailStatus?: LicenseEmailStatus;
+  emailPreparedDate?: string;
+  emailSentDate?: string;
+  emailNotes?: string;
+  pendingFlags?: LicensePendingFlag[];
+  pendingNotes?: string;
   completionChecklist: LicenseCompletionChecklist;
   createdAt: string;
   updatedAt: string;
@@ -539,10 +567,16 @@ export type LicenseReceipt = {
 };
 
 export type GeneratedLicense = {
+  generatedLicenseRecordId?: string;
   id: string;
   applicationId: string;
   lin: string;
   applicantName: string;
+  applicantEmail?: string;
+  applicantPhotoFileName?: string;
+  nationality?: string;
+  dateOfBirth?: string;
+  passportNumber?: string;
   categoryLabel: string;
   dateIssued: string;
   expiryDate: string;
@@ -563,6 +597,32 @@ export type GeneratedLicense = {
   issuedBy: string;
   issuedByTitle: string;
   printStatus: "Draft" | "Previewed" | "Printed";
+  cardId?: string;
+  cardFrontLayout?: string;
+  cardBackLayout?: string;
+  renewalStatus?: LicenseRenewalStatus;
+  renewalCount?: number;
+  renewalStartedAt?: string;
+  renewedAt?: string;
+  previousExpiryDate?: string;
+  renewalHistory?: Array<{
+    startedAt: string;
+    previousExpiryDate: string;
+    newExpiryDate?: string;
+    status: LicenseRenewalStatus;
+    notes?: string;
+  }>;
+  photoStatus?: ApplicantPhotoStatus;
+  summaryReviewStatus?: "Pending" | "Complete";
+  summaryReviewedBy?: string;
+  summaryReviewedDate?: string;
+  summaryReviewNotes?: string;
+  licenseEmailStatus?: LicenseEmailStatus;
+  emailPreparedDate?: string;
+  emailSentDate?: string;
+  emailNotes?: string;
+  pendingFlags?: LicensePendingFlag[];
+  pendingNotes?: string;
   createdAt: string;
 };
 

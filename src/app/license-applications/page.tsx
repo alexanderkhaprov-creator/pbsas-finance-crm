@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Edit, FileCheck2, Plus, ReceiptText, Search, ShieldCheck, Trash2 } from "lucide-react";
+import { Camera, Edit, FileCheck2, Plus, ReceiptText, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { useFinanceData } from "@/components/finance-data-provider";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -9,7 +9,7 @@ import { formatCurrency, formatDate } from "@/lib/format";
 import { getNextSequentialId } from "@/lib/id-utils";
 import { parseMoneyInput } from "@/lib/money-utils";
 import { currencies, licenseApplicationOrigins, licenseApplicationSources, licenseCategories, licenseInvoiceStatuses, licensePaidToOptions, licensePaymentMethods, licensePaymentStatuses, licenseReviewStatuses, licenseStatuses, stampStatuses } from "@/lib/options";
-import type { AuditAction, CoachCertification, LicenseApplication, LicenseDocumentChecklistItem, NotableFighter } from "@/types";
+import type { ApplicantPhotoStatus, AuditAction, CoachCertification, GeneratedLicense, LicenseApplication, LicenseDocumentChecklistItem, LicenseEmailStatus, LicensePendingFlag, NotableFighter } from "@/types";
 
 const LIN_PREFIX = "UAEAC2026";
 
@@ -102,6 +102,39 @@ function categoryLabel(application: LicenseApplication) {
   return application.additionalOfficialCategories?.length ? application.additionalOfficialCategories.join(" / ") : application.licenseCategory === "Other" ? application.otherCategoryDescription || "Other" : application.licenseCategory;
 }
 
+function photoStatusFor(application: LicenseApplication, license?: GeneratedLicense): ApplicantPhotoStatus {
+  if (license?.photoStatus) return license.photoStatus;
+  if (application.photoStatus) return application.photoStatus;
+  if (license?.applicantPhotoFileName || application.applicantPhotoFileName) return "Photo Uploaded to License";
+  if (application.completionChecklist.photoReceived) return "Photo Received";
+  return "Photo Missing";
+}
+
+function paymentReadyForSend(application: LicenseApplication) {
+  return application.paymentStatus === "Paid" || application.paymentStatus === "Waived" || application.paymentConfirmationType === "Manually Paid" || application.paymentConfirmationType === "Cash Paid" || application.paymentConfirmationType === "Admin Ready Override";
+}
+
+function idVerifiedForSend(application: LicenseApplication) {
+  const core = coreDocumentStatus(application);
+  return core.idVerified || application.completionChecklist.identificationProvided;
+}
+
+function licenseReadyToSend(application: LicenseApplication, license?: GeneratedLicense) {
+  if (!license) return { ready: false, reason: "Not ready to send — generated license missing." };
+  const certifiedOrIssued = license.approvalStatus === "Issued" || license.approvalStatus === "Stamped / Certified" || application.licenseStatus === "Issued";
+  if (!certifiedOrIssued) return { ready: false, reason: "Not ready to send — license is not issued or certified." };
+  if (license.stampStatus !== "Stamped" && application.stampStatus !== "Stamped") return { ready: false, reason: "Not ready to send — stamp not applied." };
+  if (!paymentReadyForSend(application)) return { ready: false, reason: "Not ready to send — payment not confirmed." };
+  if (!idVerifiedForSend(application)) return { ready: false, reason: "Not ready to send — passport or National ID not verified." };
+  if (photoStatusFor(application, license) !== "Photo Uploaded to License") return { ready: false, reason: "Not ready to send — applicant photo missing." };
+  if ((application.summaryReviewStatus ?? license.summaryReviewStatus) !== "Complete") return { ready: false, reason: "Not ready to send — summary review not completed." };
+  return { ready: true, reason: "Ready To Send" };
+}
+
+function validPhotoFileName(fileName: string) {
+  return /\.(jpe?g|png|webp)$/i.test(fileName.trim());
+}
+
 function requiredDocumentsComplete(application: LicenseApplication) {
   const requiredDocuments = (application.documentChecklistSnapshot ?? []).filter((item) => item.required);
   if (!requiredDocuments.length) return application.completionChecklist.identificationProvided && application.completionChecklist.photoReceived;
@@ -126,16 +159,28 @@ function coreDocumentsVerified(application: LicenseApplication) {
 }
 
 function paymentConfirmed(application: LicenseApplication) {
-  return paymentCleared(application) || Boolean(application.paymentConfirmationType === "Cash Paid" || application.paymentConfirmationType === "Manually Paid" || application.paymentConfirmationType === "Admin Ready Override");
+  return paymentCleared(application) || application.paymentStatus === "Payment Verified" || Boolean(application.paymentConfirmationType === "Cash Paid" || application.paymentConfirmationType === "Manually Paid" || application.paymentConfirmationType === "Admin Ready Override" || application.paymentConfirmationType === "Waived");
 }
 
 function licenseIssueBlockers(application: LicenseApplication) {
-  const core = coreDocumentStatus(application);
+  const hasIdentity = Boolean(application.passportNumber || application.nationalIdNumber || application.identificationNumber);
   return [
-    ...(!core.idVerified ? ["Passport or National ID document must be verified before license issuance."] : []),
-    ...(!core.photoVerified ? ["Passport-sized photograph must be verified before license issuance."] : []),
+    ...(!hasIdentity ? ["Passport Number or National ID field is required before license generation."] : []),
+    ...(!(application.fullLegalName || application.applicantFullName).trim() ? ["Full Legal Name is required before license generation."] : []),
+    ...(!categoryLabel(application) ? ["License category is required before license generation."] : []),
     ...(!paymentConfirmed(application) ? ["Payment must be verified, waived, or manually confirmed before license issuance."] : []),
-    ...(!application.chiefReviewer.trim() || !application.approvalDate ? ["Chief approval information is incomplete."] : [])
+  ];
+}
+
+function pendingFlagsForApplication(application: LicenseApplication): LicensePendingFlag[] {
+  const core = coreDocumentStatus(application);
+  const requiredDocumentsPending = (application.documentChecklistSnapshot ?? []).filter((item) => item.required).some((item) => item.verificationStatus !== "Verified");
+  return [
+    ...(photoStatusFor(application) !== "Photo Uploaded to License" ? ["Photo Pending" as const] : []),
+    ...(!core.idVerified || requiredDocumentsPending ? ["Documents Pending" as const] : []),
+    ...((application.summaryReviewStatus ?? "Pending") !== "Complete" ? ["Summary Review Pending" as const] : []),
+    ...(application.stampStatus !== "Stamped" ? ["Stamp Pending" as const] : []),
+    ...((application.licenseEmailStatus ?? "Not Sent") !== "Sent" ? ["Email Pending" as const] : [])
   ];
 }
 
@@ -482,6 +527,190 @@ function Info({ label, value }: { label: string; value: string }) {
   return <div className="flex justify-between gap-3"><dt className="font-medium text-steel">{label}</dt><dd className="text-right font-semibold text-ink">{value || "Not set"}</dd></div>;
 }
 
+function SummaryReviewModal({
+  application,
+  license,
+  receiptNumber,
+  onClose,
+  onComplete
+}: {
+  application: LicenseApplication;
+  license?: GeneratedLicense;
+  receiptNumber: string;
+  onClose: () => void;
+  onComplete: (reviewedBy: string, reviewDate: string, notes: string) => Promise<void>;
+}) {
+  const photoStatus = photoStatusFor(application, license);
+  const readiness = licenseReadyToSend(application, license);
+  const maskedApplicationId = maskIdentifier(application.passportNumber || application.nationalIdNumber || application.identificationNumber);
+  const maskedLicenseId = maskIdentifier(license?.passportNumber);
+  const crossChecks = [
+    ["Full Name", application.fullLegalName || application.applicantFullName, license?.applicantName],
+    ["Nationality", application.nationality, license?.nationality],
+    ["Date of Birth", application.dateOfBirth, license?.dateOfBirth],
+    ["Passport / National ID masked", maskedApplicationId, maskedLicenseId],
+    ["License Category", categoryLabel(application), license?.categoryLabel],
+    ["License Number", license?.id, license?.id],
+    ["Issue Date", license?.issuedDate || license?.dateIssued, license?.issuedDate || license?.dateIssued],
+    ["Expiry Date", application.licenseExpiryDate || license?.expiryDate, license?.expiryDate],
+    ["Status", application.licenseStatus, displayLicenseStatus(license)]
+  ];
+  const warnings = [
+    ...(photoStatus !== "Photo Uploaded to License" ? ["Missing Photo"] : []),
+    ...(!license?.dateOfBirth ? ["DOB missing on license"] : []),
+    ...(application.nationality && license?.nationality && application.nationality !== license.nationality ? ["Nationality mismatch"] : []),
+    ...(categoryLabel(application) !== license?.categoryLabel ? ["Category mismatch"] : []),
+    ...(!readiness.ready ? [readiness.reason] : [])
+  ];
+
+  async function complete() {
+    const reviewedBy = window.prompt("Reviewed by")?.trim();
+    const reviewDate = window.prompt("Review date", new Date().toISOString().slice(0, 10))?.trim();
+    const notes = window.prompt("Optional review notes", application.summaryReviewNotes ?? "")?.trim() ?? "";
+    if (!reviewedBy || !reviewDate) {
+      window.alert("Reviewed by and review date are required.");
+      return;
+    }
+    await onComplete(reviewedBy, reviewDate, notes);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="max-h-[92vh] w-full max-w-7xl overflow-y-auto rounded border border-black/10 bg-white shadow-soft">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-black/10 p-5">
+          <div>
+            <h3 className="text-lg font-semibold text-ink">Summary Review</h3>
+            <p className="mt-1 text-sm text-steel">{application.id} / {application.applicantFullName}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <StatusBadge value={photoStatus} />
+            <StatusBadge value={application.summaryReviewStatus ?? "Pending"} />
+            <StatusBadge value={readiness.ready ? "Ready To Send" : "Follow-up Required"} />
+          </div>
+        </div>
+        <div className="grid gap-5 p-5 xl:grid-cols-[1fr_0.9fr]">
+          <div className="space-y-4">
+            <ReviewSection title="Section 1 — Personal Information" rows={[
+              ["Full Legal Name", application.fullLegalName || application.applicantFullName],
+              ["Date of Birth", application.dateOfBirth],
+              ["Nationality", application.nationality],
+              ["Passport Number", application.passportNumber ?? ""],
+              ["National ID Number", application.nationalIdNumber ?? application.nationalIdFormatted ?? ""],
+              ["Gender", application.gender ?? ""],
+              ["Email", application.email],
+              ["Phone", application.phone],
+              ["Emergency Contact Name", application.emergencyContactName ?? ""],
+              ["Emergency Contact Phone", application.emergencyContactPhone ?? ""]
+            ]} />
+            <ReviewSection title="Section 2 — Professional Information" rows={[
+              ["License Category / Combined Categories", categoryLabel(application)],
+              ["Years of Experience", application.yearsOfExperience ?? application.professionalBoxingExperienceYears ?? ""],
+              ["Federation/Commission Memberships", application.currentMemberships ?? ""],
+              ["Certifications", application.professionalCertificationsHeld ?? application.internationalCertifications ?? ""],
+              ["Current Organization / Team", application.currentOrganizationTeam ?? application.currentGymOrTeam ?? ""],
+              ["Relevant Experience Notes", application.relevantExperienceNotes ?? ""]
+            ]} />
+            <ReviewSection title="Section 3 — Background" rows={[
+              ["Held previous license", application.heldPreviousLicense ?? ""],
+              ["Existing license commission", application.existingLicenseCommission ?? ""],
+              ["Suspended by commission", application.suspendedByCommission ?? ""],
+              ["Suspension explanation", application.suspensionExplanation ?? ""],
+              ["Denied license", application.deniedLicense ?? ""],
+              ["Denied license explanation", application.deniedLicenseExplanation ?? ""],
+              ["Under investigation", application.underInvestigation ?? ""],
+              ["Criminal conviction", application.criminalConviction ?? ""]
+            ]} />
+            <ReviewSection title="Section 4 — Medical" rows={[
+              ["Medical condition", application.medicalCondition ?? ""],
+              ["Medical condition explanation", application.medicalConditionExplanation ?? ""],
+              ["Concussion past 12 months", application.concussionPast12Months ?? ""],
+              ["Prescribed medications", application.prescribedMedications ?? ""],
+              ["Prescribed medications list", application.prescribedMedicationsList ?? ""],
+              ["Blood Type", application.bloodType ?? ""],
+              ["Allergies", application.allergies ?? ""]
+            ]} />
+            <ReviewSection title="Section 5 — Documents" rows={[
+              ["Passport / ID document status", documentStatusText(application, "passport") || documentStatusText(application, "national id") || (application.completionChecklist.identificationProvided ? "Received" : "Not received")],
+              ["Photo status", photoStatus],
+              ["Existing License Copies status", application.heldPreviousLicense === "Yes" ? application.existingLicenseEvidenceFileName || documentStatusText(application, "existing license") || "Missing" : "Not applicable"],
+              ["Other uploaded document statuses", (application.documentChecklistSnapshot ?? []).filter((item) => !/passport|national id|photo|photograph|existing license/i.test(item.documentName)).map((item) => `${item.documentName}: ${item.verificationStatus}`).join("; ")]
+            ]} />
+            <ReviewSection title="Section 6 — Payment" rows={[
+              ["Payment Status", application.paymentStatus],
+              ["Amount Paid", formatCurrency(application.amountPaid, application.currency)],
+              ["Payment Method", application.paymentMethod],
+              ["Payment Date", application.paymentDate],
+              ["Receipt Number", receiptNumber],
+              ["Paid To", application.paidTo]
+            ]} />
+            <ReviewSection title="Section 8 — UAEAC Internal" rows={[
+              ["Reviewed By", application.reviewedBy],
+              ["Chief Reviewer", application.chiefReviewer],
+              ["Approval Date", application.approvalDate],
+              ["Review Status", application.reviewStatus],
+              ["License Status", application.licenseStatus],
+              ["Stamp Status", application.stampStatus]
+            ]} />
+          </div>
+          <aside className="space-y-4">
+            <section className="rounded border border-black/10 bg-[#f7f7f5] p-4">
+              <h4 className="font-semibold text-ink">License Cross-Check</h4>
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full min-w-[520px] text-left text-xs">
+                  <thead className="text-steel"><tr><th className="py-2">Application Field</th><th className="py-2">License Field</th><th className="py-2">Status</th></tr></thead>
+                  <tbody className="divide-y divide-black/10">
+                    {crossChecks.map(([label, applicationValue, licenseValue]) => {
+                      const missing = !applicationValue || !licenseValue;
+                      const mismatch = Boolean(applicationValue && licenseValue && applicationValue !== licenseValue);
+                      return <tr key={label}><td className="py-2 text-steel">{label}: <span className="font-semibold text-ink">{applicationValue || "Missing"}</span></td><td className="py-2 text-steel">{licenseValue || "Missing"}</td><td className="py-2"><StatusBadge value={missing || mismatch ? "Needs Clarification" : "Verified"} /></td></tr>;
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+            <section className="rounded border border-black/10 bg-white p-4">
+              <h4 className="font-semibold text-ink">Readiness</h4>
+              <p className="mt-2 text-sm text-steel">{readiness.reason}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {warnings.length ? warnings.map((warning) => <span className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800" key={warning}>{warning}</span>) : <StatusBadge value="Ready To Send" />}
+              </div>
+            </section>
+          </aside>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-black/10 p-5">
+          <button className="rounded border border-black/10 px-4 py-2 text-sm font-semibold text-steel hover:bg-zinc-50" onClick={onClose}>Close</button>
+          <button className="rounded bg-gold px-4 py-2 text-sm font-semibold text-ink hover:bg-[#d7b445]" onClick={() => void complete()}>Mark Summary Review Complete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReviewSection({ title, rows }: { title: string; rows: Array<[string, string]> }) {
+  return (
+    <section className="rounded border border-black/10 bg-white p-4">
+      <h4 className="font-semibold text-ink">{title}</h4>
+      <dl className="mt-3 space-y-2 text-sm">{rows.map(([label, value]) => <Info key={label} label={label} value={value} />)}</dl>
+    </section>
+  );
+}
+
+function maskIdentifier(value: string | undefined) {
+  if (!value) return "";
+  const normalized = value.replace(/\s+/g, "");
+  return normalized.length <= 4 ? normalized : `${"X".repeat(Math.max(4, normalized.length - 4))}${normalized.slice(-4)}`;
+}
+
+function documentStatusText(application: LicenseApplication, pattern: string) {
+  const document = (application.documentChecklistSnapshot ?? []).find((item) => item.documentName.toLowerCase().includes(pattern));
+  return document ? `${document.verificationStatus}${document.fileName ? ` · ${document.fileName}` : ""}` : "";
+}
+
+function displayLicenseStatus(license?: GeneratedLicense) {
+  if (!license) return "";
+  return license.approvalStatus === "Stamped / Certified" ? "Certified" : license.approvalStatus ?? "Draft";
+}
+
 function PaymentSectionModal({
   application,
   auditLogs,
@@ -638,7 +867,7 @@ function PaymentSectionModal({
           <section className="md:col-span-2 rounded border border-black/10 bg-[#f7f7f5] p-4">
             <h4 className="font-semibold text-ink">Payment audit history</h4>
             <div className="mt-3 space-y-2">
-              {paymentAudit.length ? paymentAudit.map((log) => <p className="text-sm text-steel" key={log.id}>{formatDate(log.timestamp)} · {log.action} · {log.notes}</p>) : <p className="text-sm text-steel">No payment audit entries yet.</p>}
+              {paymentAudit.length ? paymentAudit.map((log, index) => <p className="text-sm text-steel" key={`audit-${log.id}-${index}`}>{formatDate(log.timestamp)} · {log.action} · {log.notes}</p>) : <p className="text-sm text-steel">No payment audit entries yet.</p>}
             </div>
           </section>
         </div>
@@ -671,6 +900,7 @@ export default function LicenseApplicationsPage() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [editing, setEditing] = useState<LicenseApplication | null>(null);
   const [reviewing, setReviewing] = useState<LicenseApplication | null>(null);
+  const [summaryReviewing, setSummaryReviewing] = useState<LicenseApplication | null>(null);
   const [paymentReviewing, setPaymentReviewing] = useState<LicenseApplication | null>(null);
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -690,16 +920,25 @@ export default function LicenseApplicationsPage() {
       const awaitingPayment = application.paymentStatus === "Pending Payment" || application.paymentStatus === "Partially Paid";
       const readyForChiefReview = !awaitingPayment && !missingRequiredDocuments && ["New", "Pending Documents", "Awaiting Payment", "Pending Payment"].includes(application.reviewStatus);
       const readyForStamp = application.paymentStatus === "Paid" && application.reviewStatus === "Approved by Chief";
+      const linkedLicense = generatedLicenses.find((license) => license.applicationId === application.id);
+      const readiness = licenseReadyToSend(application, linkedLicense);
+      const photoStatus = photoStatusFor(application, linkedLicense);
       const matchesSpecial =
         specialFilter === "Missing Required Documents" ? missingRequiredDocuments
           : specialFilter === "Identification Missing" ? identificationMissing
             : specialFilter === "Awaiting Payment" ? awaitingPayment
               : specialFilter === "Ready for Chief Review" ? readyForChiefReview
                 : specialFilter === "Ready for Stamp" ? readyForStamp
-                  : true;
+                  : specialFilter === "Photo Missing" ? photoStatus === "Photo Missing"
+                    : specialFilter === "Photo Requested" ? photoStatus === "Photo Requested"
+                      : specialFilter === "Ready To Send" ? readiness.ready
+                        : specialFilter === "Sent" ? (application.licenseEmailStatus ?? linkedLicense?.licenseEmailStatus) === "Sent"
+                          : specialFilter === "Summary Review Pending" ? (application.summaryReviewStatus ?? linkedLicense?.summaryReviewStatus) !== "Complete"
+                            : specialFilter === "Payment Confirmed But License Not Generated" ? paymentConfirmed(application) && !linkedLicense
+                              : true;
       return matchesQuery && matchesPayment && matchesPaidTo && matchesInvoice && matchesReview && matchesLicense && matchesStamp && matchesSource && matchesOrigin && matchesCategory && matchesSpecial;
     });
-  }, [categoryFilter, invoiceFilter, licenseApplications, licenseFilter, originFilter, paidToFilter, paymentFilter, query, reviewFilter, sourceFilter, specialFilter, stampFilter]);
+  }, [categoryFilter, generatedLicenses, invoiceFilter, licenseApplications, licenseFilter, originFilter, paidToFilter, paymentFilter, query, reviewFilter, sourceFilter, specialFilter, stampFilter]);
 
   const summary = {
     total: licenseApplications.length,
@@ -709,6 +948,10 @@ export default function LicenseApplicationsPage() {
     issued: licenseApplications.filter((application) => application.licenseStatus === "Issued" || application.reviewStatus === "License Issued").length,
     rejected: licenseApplications.filter((application) => application.reviewStatus === "Rejected" || application.licenseStatus === "Rejected").length
   };
+
+  function linkedLicenseFor(application: LicenseApplication) {
+    return generatedLicenses.find((license) => license.applicationId === application.id);
+  }
 
   async function saveApplication(application: LicenseApplication) {
     if (licenseApplications.some((item) => item.id === application.id)) {
@@ -880,11 +1123,111 @@ export default function LicenseApplicationsPage() {
       window.alert(blockers.join("\n"));
       return;
     }
+    const pendingFlags = pendingFlagsForApplication(application);
+    const core = coreDocumentStatus(application);
+    const warnings = [
+      ...pendingFlags,
+      ...(!core.idVerified ? ["Passport / National ID proof is not verified yet."] : [])
+    ];
+    if (warnings.length && !window.confirm(`Generate license with pending administrative items?\n\n${warnings.join("\n")}\n\nLicense generated with pending administrative items. Review before final external sending.`)) {
+      return;
+    }
     try {
       await generateLicenseDraft(application);
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Unable to generate license draft.");
     }
+  }
+
+  async function markPhotoRequested(application: LicenseApplication) {
+    const today = new Date().toISOString().slice(0, 10);
+    const updated: LicenseApplication = {
+      ...application,
+      photoStatus: "Photo Requested",
+      licenseEmailStatus: "Photo Requested",
+      emailPreparedDate: application.emailPreparedDate || today,
+      emailNotes: `${application.emailNotes ? `${application.emailNotes}\n` : ""}Photo requested on ${today}.`,
+      updatedAt: new Date().toISOString()
+    };
+    await updateLicenseApplication(updated);
+    const license = linkedLicenseFor(application);
+    if (license) {
+      updateGeneratedLicense({ ...license, photoStatus: "Photo Requested", licenseEmailStatus: "Photo Requested", emailPreparedDate: license.emailPreparedDate || today });
+    }
+  }
+
+  async function uploadApplicantPhoto(application: LicenseApplication) {
+    const fileName = window.prompt("Applicant photo filename or local placeholder path (.jpg, .jpeg, .png, .webp)", application.applicantPhotoFileName || "");
+    if (!fileName?.trim()) return;
+    if (!validPhotoFileName(fileName)) {
+      window.alert("Photo must be JPG, JPEG, PNG, or WEBP.");
+      return;
+    }
+    const license = linkedLicenseFor(application);
+    const updatedApplication: LicenseApplication = {
+      ...application,
+      applicantPhotoFileName: fileName.trim(),
+      photoStatus: "Photo Uploaded to License",
+      completionChecklist: { ...application.completionChecklist, photoReceived: true },
+      updatedAt: new Date().toISOString()
+    };
+    await updateLicenseApplication(updatedApplication);
+    if (license) {
+      updateGeneratedLicense({
+        ...license,
+        applicantPhotoFileName: fileName.trim(),
+        photoStatus: "Photo Uploaded to License"
+      });
+    }
+    addAuditLog({
+      module: "License Applications",
+      recordId: application.id,
+      recordLabel: application.applicantFullName,
+      action: "Applicant Photo Uploaded",
+      changedBy: "Local User",
+      previousValueSummary: application.applicantPhotoFileName || "No photo",
+      newValueSummary: fileName.trim(),
+      notes: "Applicant photo uploaded and linked to generated license if available."
+    });
+  }
+
+  async function completeSummaryReview(application: LicenseApplication, reviewedBy: string, reviewDate: string, notes: string) {
+    const license = linkedLicenseFor(application);
+    const readiness = licenseReadyToSend({ ...application, summaryReviewStatus: "Complete", photoStatus: application.photoStatus }, license ? { ...license, summaryReviewStatus: "Complete" } : undefined);
+    const emailStatus: LicenseEmailStatus = readiness.ready ? "Ready To Send" : application.licenseEmailStatus ?? "Not Sent";
+    const updatedApplication: LicenseApplication = {
+      ...application,
+      summaryReviewStatus: "Complete",
+      summaryReviewedBy: reviewedBy,
+      summaryReviewedDate: reviewDate,
+      summaryReviewNotes: notes,
+      licenseEmailStatus: emailStatus,
+      emailPreparedDate: readiness.ready ? new Date().toISOString().slice(0, 10) : application.emailPreparedDate,
+      updatedAt: new Date().toISOString()
+    };
+    await updateLicenseApplication(updatedApplication);
+    if (license) {
+      updateGeneratedLicense({
+        ...license,
+        summaryReviewStatus: "Complete",
+        summaryReviewedBy: reviewedBy,
+        summaryReviewedDate: reviewDate,
+        summaryReviewNotes: notes,
+        licenseEmailStatus: emailStatus,
+        emailPreparedDate: readiness.ready ? new Date().toISOString().slice(0, 10) : license.emailPreparedDate
+      });
+    }
+    addAuditLog({
+      module: "License Applications",
+      recordId: application.id,
+      recordLabel: application.applicantFullName,
+      action: "Summary Review Completed",
+      changedBy: reviewedBy,
+      previousValueSummary: application.summaryReviewStatus ?? "Pending",
+      newValueSummary: `Complete on ${reviewDate}`,
+      notes
+    });
+    setSummaryReviewing(null);
   }
 
   return (
@@ -927,17 +1270,20 @@ export default function LicenseApplicationsPage() {
             <select className="rounded border border-black/10 bg-white px-3 py-2 text-sm text-ink" value={stampFilter} onChange={(event) => setStampFilter(event.target.value)}><option value="">Stamp Status</option>{stampStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select>
             <select className="rounded border border-black/10 bg-white px-3 py-2 text-sm text-ink" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}><option value="">Application Source</option>{licenseApplicationSources.map((source) => <option key={source} value={source}>{source}</option>)}</select>
             <select className="rounded border border-black/10 bg-white px-3 py-2 text-sm text-ink" value={originFilter} onChange={(event) => setOriginFilter(event.target.value)}><option value="">Origin</option>{licenseApplicationOrigins.map((origin) => <option key={origin} value={origin}>{origin}</option>)}</select>
-            <select className="rounded border border-black/10 bg-white px-3 py-2 text-sm text-ink" value={specialFilter} onChange={(event) => setSpecialFilter(event.target.value)}><option value="">Workflow Filter</option>{["Missing Required Documents", "Identification Missing", "Awaiting Payment", "Ready for Chief Review", "Ready for Stamp"].map((filter) => <option key={filter} value={filter}>{filter}</option>)}</select>
+            <select className="rounded border border-black/10 bg-white px-3 py-2 text-sm text-ink" value={specialFilter} onChange={(event) => setSpecialFilter(event.target.value)}><option value="">Workflow Filter</option>{["Missing Required Documents", "Identification Missing", "Awaiting Payment", "Ready for Chief Review", "Ready for Stamp", "Photo Missing", "Photo Requested", "Ready To Send", "Sent", "Summary Review Pending", "Payment Confirmed But License Not Generated"].map((filter) => <option key={filter} value={filter}>{filter}</option>)}</select>
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1900px] text-left text-sm">
             <thead className="sticky top-0 z-10 bg-[#f1f1ee] text-xs uppercase tracking-[0.12em] text-steel">
-              <tr>{["APP ID", "LIN", "Applicant Name", "Category", "Amount Due", "Amount Paid", "Payment Status", "Paid To", "Invoice Number", "Receipt Number", "Invoice Status", "Review Status", "License Status", "Stamp Status", "Required Documents Completion %", "Application Source", "Origin", "Created Date", "Warnings", "Actions"].map((heading) => <th className="px-4 py-3 font-semibold" key={heading}>{heading}</th>)}</tr>
+              <tr>{["APP ID", "LIN", "Applicant Name", "Category", "Amount Due", "Amount Paid", "Payment Status", "Paid To", "Invoice Number", "Receipt Number", "Invoice Status", "Review Status", "License Status", "Stamp Status", "Photo Status", "Send Readiness", "Required Documents Completion %", "Application Source", "Origin", "Created Date", "Warnings", "Actions"].map((heading) => <th className="px-4 py-3 font-semibold" key={heading}>{heading}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-black/10">
               {filtered.map((application) => {
                 const documentCount = documents.filter((document) => document.linkedModule === "License Application" && document.linkedRecordId === application.id).length;
+                const linkedLicense = linkedLicenseFor(application);
+                const readiness = licenseReadyToSend(application, linkedLicense);
+                const pendingFlags = linkedLicense?.pendingFlags?.length ? linkedLicense.pendingFlags : pendingFlagsForApplication(application);
                 return (
                   <tr className="align-top hover:bg-[#fafaf8]" key={application.id}>
                     <td className="px-4 py-4 font-medium text-ink">{application.id}</td>
@@ -954,6 +1300,8 @@ export default function LicenseApplicationsPage() {
                     <td className="px-4 py-4"><StatusBadge value={application.reviewStatus} /></td>
                     <td className="px-4 py-4"><StatusBadge value={application.licenseStatus} /></td>
                     <td className="px-4 py-4"><StatusBadge value={application.stampStatus} /></td>
+                    <td className="px-4 py-4"><StatusBadge value={photoStatusFor(application, linkedLicense)} /></td>
+                    <td className="max-w-[240px] px-4 py-4"><StatusBadge value={readiness.ready ? "Ready To Send" : "Follow-up Required"} /><p className="mt-1 text-xs text-steel">{readiness.reason}</p></td>
                     <td className="px-4 py-4">
                       <div className="h-2 w-28 rounded bg-black/10">
                         <div className="h-2 rounded bg-gold" style={{ width: `${completionPercent(application)}%` }} />
@@ -967,6 +1315,9 @@ export default function LicenseApplicationsPage() {
                       {!paymentCleared(application) ? <span className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">Payment warning</span> : null}
                       {application.reviewStatus === "Approved by Chief" && !requiredFieldsComplete(application) ? <span className="ml-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700">Missing fields</span> : null}
                       {documentCount ? <span className="ml-2 rounded border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-zinc-700">{documentCount} docs</span> : null}
+                      {pendingFlags.includes("Photo Pending") ? <span className="ml-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">Photo Pending</span> : null}
+                      {pendingFlags.includes("Summary Review Pending") ? <span className="ml-2 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">Summary Review Pending</span> : null}
+                      {linkedLicense?.approvalStatus === "Generated With Pending Items" ? <p className="mt-2 text-xs font-semibold text-amber-800">Generated with pending items *</p> : null}
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex flex-wrap gap-2">
@@ -980,12 +1331,19 @@ export default function LicenseApplicationsPage() {
                           <button className="rounded border border-zinc-300 bg-zinc-50 px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-100" onClick={() => void waivePayment(application)} type="button">Mark Payment Waived</button>
                         ) : null}
                         <button className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100" onClick={() => setPaymentReviewing(application)} type="button"><ReceiptText className="h-3 w-3" />Review Payment Section</button>
+                        <button className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100" onClick={() => setSummaryReviewing(application)} type="button"><FileCheck2 className="h-3 w-3" />Summary Review</button>
+                        <button className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100" onClick={() => void markPhotoRequested(application)} type="button"><Camera className="h-3 w-3" />Mark Photo Requested</button>
+                        <button className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100" onClick={() => void uploadApplicantPhoto(application)} type="button"><Camera className="h-3 w-3" />Upload Applicant Photo</button>
                         {paymentCleared(application) && !licenseReceipts.some((receipt) => receipt.applicationId === application.id) ? (
                           <button className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100" onClick={() => void generateReceipt(application)} type="button"><ReceiptText className="h-3 w-3" />Generate Receipt</button>
                         ) : null}
-                        {application.licenseStatus !== "Rejected" && !generatedLicenses.some((license) => license.applicationId === application.id) ? (
-                          <button className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100" onClick={() => void generateLicense(application)} type="button"><FileCheck2 className="h-3 w-3" />Generate License Draft</button>
-                        ) : null}
+                        {linkedLicense ? (
+                          <a className="inline-flex items-center gap-1 rounded border border-black/10 px-2 py-1 text-xs font-semibold text-steel hover:border-gold hover:text-ink" href="/generated-licenses">Open Generated License</a>
+                        ) : paymentConfirmed(application) && application.licenseStatus !== "Rejected" ? (
+                          <button className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100" onClick={() => void generateLicense(application)} type="button"><FileCheck2 className="h-3 w-3" />Generate License</button>
+                        ) : (
+                          <span className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">Payment Pending</span>
+                        )}
                         <button className="inline-flex items-center gap-1 rounded border border-black/10 px-2 py-1 text-xs font-semibold text-steel hover:border-gold hover:text-ink" onClick={() => setReviewing(application)} type="button"><ShieldCheck className="h-3 w-3" />Review Application</button>
                         <button className="rounded border border-black/10 p-2 text-steel hover:border-gold hover:text-ink" onClick={() => setEditing(application)} title="Edit"><Edit className="h-4 w-4" /></button>
                         <button className="rounded border border-black/10 p-2 text-steel hover:border-red-300 hover:text-red-700" onClick={() => void deleteLicenseApplication(application)} title="Delete"><Trash2 className="h-4 w-4" /></button>
@@ -1001,6 +1359,7 @@ export default function LicenseApplicationsPage() {
       </section>
       {editing ? <ApplicationModal application={editing} onClose={() => setEditing(null)} onSubmit={saveApplication} /> : null}
       {reviewing ? <ReviewModal application={reviewing} stampAvailable={stampSettings.stampAvailable === "Yes"} onClose={() => setReviewing(null)} onSubmit={saveReview} /> : null}
+      {summaryReviewing ? <SummaryReviewModal application={summaryReviewing} license={linkedLicenseFor(summaryReviewing)} receiptNumber={summaryReviewing.receiptNumber || licenseReceipts.find((receipt) => receipt.applicationId === summaryReviewing.id)?.id || "Not generated"} onClose={() => setSummaryReviewing(null)} onComplete={(reviewedBy, reviewDate, notes) => completeSummaryReview(summaryReviewing, reviewedBy, reviewDate, notes)} /> : null}
       {paymentReviewing ? <PaymentSectionModal application={paymentReviewing} auditLogs={auditLogs} onClose={() => setPaymentReviewing(null)} onSubmit={savePaymentSection} /> : null}
     </>
   );
