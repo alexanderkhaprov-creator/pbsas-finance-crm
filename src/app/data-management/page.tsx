@@ -92,6 +92,43 @@ export default function DataManagementPage() {
     }
   }
 
+  async function loadBundledOperationalBackup() {
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await fetch("/backups/pbsas-operational-baseline.json", { cache: "no-store" });
+      if (!response.ok) {
+        setError("Bundled operational backup was not found at /backups/pbsas-operational-baseline.json.");
+        return;
+      }
+
+      const parsed = await response.json();
+      const result = validateBackupData(parsed);
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+
+      const confirmed = window.confirm("This will replace current local browser data with the bundled operational backup.");
+      if (!confirmed) {
+        setMessage("Bundled backup import cancelled. Existing data was not changed.");
+        return;
+      }
+
+      const importResult = importBackup(parsed);
+      if (!importResult.ok) {
+        setError(importResult.message);
+        return;
+      }
+
+      setMessage("Bundled operational backup imported. Reloading app...");
+      window.setTimeout(() => window.location.reload(), 300);
+    } catch {
+      setError("Unable to load bundled operational backup. Confirm the file is valid JSON.");
+    }
+  }
+
   function resetData() {
     if (!window.confirm("Reset all local records to the demo PBSAS data?")) return;
     resetDemoData();
@@ -119,6 +156,9 @@ export default function DataManagementPage() {
       <PageHeader title="Data Management" description="Browser-local backup, import, reset, and cleanup tools for mock PBSAS finance data." />
       <div className="mb-6 rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
         This app currently stores data in this browser only. Export a backup before clearing data, switching browsers, or testing major changes.
+      </div>
+      <div className="mb-6 rounded border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">
+        Bundled backups may contain confidential applicant and financial data. Use only for internal review.
       </div>
       {appSettings.mode === "real" ? (
         <div className="mb-6 rounded border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">
@@ -268,10 +308,16 @@ export default function DataManagementPage() {
         </ActionCard>
         <ActionCard title="Import Full Backup JSON" description="Validate and import a PBSAS backup file. Existing local data is replaced only after confirmation.">
           <input accept="application/json" className="hidden" onChange={handleImport} ref={fileInputRef} type="file" />
-          <button className="inline-flex items-center gap-2 rounded bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-graphite" onClick={() => fileInputRef.current?.click()}>
-            <Upload className="h-4 w-4" />
-            Import Full Backup JSON
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button className="inline-flex items-center gap-2 rounded bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-graphite" onClick={() => fileInputRef.current?.click()}>
+              <Upload className="h-4 w-4" />
+              Import Full Backup JSON
+            </button>
+            <button className="inline-flex items-center gap-2 rounded border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100" onClick={() => void loadBundledOperationalBackup()}>
+              <Upload className="h-4 w-4" />
+              Load Bundled Operational Backup
+            </button>
+          </div>
         </ActionCard>
         <ActionCard title="Export Expenses CSV" description="Download the current expense register as CSV.">
           <button className="inline-flex items-center gap-2 rounded border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-steel hover:border-gold hover:text-ink" onClick={() => exportCsv("expenses", expenses as unknown as Array<Record<string, unknown>>)}><Download className="h-4 w-4" />Export Expenses CSV</button>
