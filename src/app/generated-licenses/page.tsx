@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Camera, CheckCircle2, CreditCard, FileCheck2, MoreHorizontal, Printer, RefreshCw, RotateCw, Stamp, XCircle } from "lucide-react";
 import QRCode from "qrcode";
 import { PageHeader } from "@/components/page-header";
@@ -489,6 +489,8 @@ export default function GeneratedLicensesPage() {
   const [summaryReviewing, setSummaryReviewing] = useState<GeneratedLicense | null>(null);
   const [actionsLicense, setActionsLicense] = useState<GeneratedLicense | null>(null);
   const [deleteRequest, setDeleteRequest] = useState<{ license: GeneratedLicense; mode: "delete" | "duplicate" } | null>(null);
+  const [photoUploadTarget, setPhotoUploadTarget] = useState<GeneratedLicense | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
   const tableHeadings = [
     { label: "License Number", title: "Official UAEAC participant license number." },
     { label: "Application", title: "" },
@@ -685,27 +687,37 @@ export default function GeneratedLicensesPage() {
   }
 
   function uploadPhoto(license: GeneratedLicense) {
-    const application = licenseApplications.find((item) => item.id === license.applicationId);
-    const fileName = window.prompt("Applicant photo filename or local placeholder path (.jpg, .jpeg, .png, .webp)", license.applicantPhotoFileName || application?.applicantPhotoFileName || "");
-    if (!fileName?.trim()) return;
-    if (!validPhotoFileName(fileName)) {
+    setPhotoUploadTarget(license);
+    photoInputRef.current?.click();
+  }
+
+  function handlePhotoUpload(file: File | undefined) {
+    const license = photoUploadTarget;
+    setPhotoUploadTarget(null);
+    if (!file || !license) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) && !validPhotoFileName(file.name)) {
       window.alert("Photo must be JPG, JPEG, PNG, or WEBP.");
       return;
     }
-    updateLicense(license, {
-      applicantPhotoFileName: fileName.trim(),
-      photoStatus: "Photo Uploaded to License"
-    });
-    addAuditLog({
-      module: "License Applications",
-      recordId: license.applicationId,
-      recordLabel: license.applicantName,
-      action: "Applicant Photo Uploaded",
-      changedBy: "Local User",
-      previousValueSummary: license.applicantPhotoFileName || "No photo",
-      newValueSummary: fileName.trim(),
-      notes: "Applicant photo uploaded on Generated Licenses page."
-    });
+    const reader = new FileReader();
+    reader.onload = () => {
+      const photoValue = typeof reader.result === "string" ? reader.result : file.name;
+      updateLicense(license, {
+        applicantPhotoFileName: photoValue,
+        photoStatus: "Photo Uploaded to License"
+      });
+      addAuditLog({
+        module: "License Applications",
+        recordId: license.applicationId,
+        recordLabel: license.applicantName,
+        action: "Applicant Photo Uploaded",
+        changedBy: "Local User",
+        previousValueSummary: license.applicantPhotoFileName || "No photo",
+        newValueSummary: file.name,
+        notes: "Applicant photo uploaded on Generated Licenses page."
+      });
+    };
+    reader.readAsDataURL(file);
   }
 
   function markEmailSent(license: GeneratedLicense) {
@@ -840,7 +852,7 @@ export default function GeneratedLicensesPage() {
                     <div className="flex flex-wrap gap-2">
                       <button className="inline-flex items-center gap-2 rounded bg-ink px-3 py-2 text-sm font-semibold text-white hover:bg-graphite" onClick={() => void printLicense(license, licenseApplications.find((item) => item.id === license.applicationId), generatedLicenses, updateGeneratedLicense, stampSettings.stampImageFileName)}><Printer className="h-4 w-4" />Print License</button>
                       <button className="inline-flex items-center gap-2 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100" onClick={() => openSummaryReview(license)}><FileCheck2 className="h-4 w-4" />Summary Review</button>
-                      <button className="inline-flex items-center gap-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100" onClick={() => uploadPhoto(license)}><Camera className="h-4 w-4" />Update Photo</button>
+                      <button className="inline-flex items-center gap-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100" onClick={() => uploadPhoto(license)}><Camera className="h-4 w-4" />Upload Applicant Photo</button>
                       <button className="inline-flex items-center gap-2 rounded border border-black/10 px-3 py-2 text-sm font-semibold text-steel hover:border-gold hover:text-ink" onClick={(event) => {
                         event.stopPropagation();
                         setActionsLicense(license);
@@ -853,6 +865,16 @@ export default function GeneratedLicensesPage() {
           </table>
         </div>
       </section>
+      <input
+        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={(event) => {
+          handlePhotoUpload(event.target.files?.[0]);
+          event.target.value = "";
+        }}
+        ref={photoInputRef}
+        type="file"
+      />
       {actionsLicense ? (
         <div className="fixed inset-0 z-[80]" onClick={() => setActionsLicense(null)}>
           <div className="absolute inset-0 bg-black/10" />

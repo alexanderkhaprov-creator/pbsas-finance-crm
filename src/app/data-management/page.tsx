@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 
 const CURRENT_DAY_TIME = new Date("2026-06-01T00:00:00.000Z").getTime();
+const EXECUTIVE_SNAPSHOT_KEY = "executiveSnapshot";
 
 function ActionCard({
   title,
@@ -49,6 +50,7 @@ export default function DataManagementPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [executiveSnapshotAt, setExecutiveSnapshotAt] = useState("");
 
   function exportJson() {
     const backup = exportBackup();
@@ -60,6 +62,83 @@ export default function DataManagementPage() {
   function exportCsv(label: string, rows: Array<Record<string, unknown>>) {
     downloadFile(`pbsas-${label}-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows), "text/csv");
     setMessage(`${label} CSV exported.`);
+    setError("");
+  }
+
+  function buildExecutiveSnapshot() {
+    const generatedAt = new Date().toISOString();
+    const issuedLicenses = generatedLicenses.filter((license) => license.approvalStatus === "Issued" || license.approvalStatus === "Stamped / Certified" || license.stampStatus === "Stamped");
+    const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+    const totalRevenue = revenues.reduce((sum, revenue) => sum + revenue.amount, 0);
+    const outstandingReimbursements = reimbursements.reduce((sum, reimbursement) => sum + (reimbursement.outstandingBalance ?? 0), 0);
+    return {
+      generatedAt,
+      generatedBy: "Local User",
+      recordCounts: {
+        applications: licenseApplications.length,
+        generatedLicenses: generatedLicenses.length,
+        issuedLicenses: issuedLicenses.length,
+        expenses: expenses.length,
+        reimbursements: reimbursements.length,
+        revenues: revenues.length,
+        reports: 7
+      },
+      applications: licenseApplications,
+      licenseApplications,
+      generatedLicenses,
+      issuedLicenses,
+      expenses,
+      reimbursements,
+      revenues,
+      reports: {
+        applications: licenseApplications.length,
+        generatedLicenses: generatedLicenses.length,
+        issuedLicenses: issuedLicenses.length,
+        expenses: expenses.length,
+        reimbursements: reimbursements.length,
+        revenues: revenues.length,
+        totalExpenses,
+        totalRevenue,
+        netPosition: totalRevenue - totalExpenses,
+        outstandingReimbursements
+      },
+      dashboardSummary: {
+        totalExpenses,
+        totalRevenue,
+        netPosition: totalRevenue - totalExpenses,
+        outstandingReimbursements,
+        activeLicenses: issuedLicenses.filter((license) => license.expiryDate >= new Date().toISOString().slice(0, 10)).length
+      },
+      snapshotType: "executive-review",
+      appVersion: "1.0.0"
+    };
+  }
+
+  function publishExecutiveSnapshot() {
+    const snapshot = buildExecutiveSnapshot();
+    window.localStorage.setItem(EXECUTIVE_SNAPSHOT_KEY, JSON.stringify(snapshot));
+    setExecutiveSnapshotAt(snapshot.generatedAt);
+    setMessage(`Executive Snapshot Published — ${new Date(snapshot.generatedAt).toLocaleString()}`);
+    setError("");
+  }
+
+  function publishAndOpenExecutiveSnapshot() {
+    const snapshot = {
+      ...buildExecutiveSnapshot(),
+      openedFromDataManagement: true
+    };
+    window.localStorage.setItem(EXECUTIVE_SNAPSHOT_KEY, JSON.stringify(snapshot));
+    setExecutiveSnapshotAt(snapshot.generatedAt);
+    setMessage(`Executive Snapshot Published — ${new Date(snapshot.generatedAt).toLocaleString()}`);
+    setError("");
+    window.open("/executive", "_blank", "noopener,noreferrer");
+  }
+
+  function exportExecutiveSnapshotFile() {
+    const snapshot = buildExecutiveSnapshot();
+    downloadFile("executive-snapshot.json", JSON.stringify(snapshot, null, 2), "application/json");
+    setExecutiveSnapshotAt(snapshot.generatedAt);
+    setMessage("Executive Snapshot file exported. Place this file into public/executive-snapshot.json, commit, push, and redeploy for shared executive access.");
     setError("");
   }
 
@@ -216,6 +295,24 @@ export default function DataManagementPage() {
               if (window.confirm("Enable Real Data Entry Mode? Entered records may be operational records and should be backed up daily.")) setDataMode("real");
             }}>Real Data Entry Mode</button>
           </div>
+        </ActionCard>
+        <ActionCard title="Executive Review Snapshot" description="Publish a read-only snapshot for senior management at /executive. This stores a browser-local executive snapshot and does not change operational records.">
+          <div className="flex flex-wrap gap-2">
+            <button className="inline-flex items-center gap-2 rounded bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-graphite" onClick={publishExecutiveSnapshot}>
+              Publish Executive Snapshot
+            </button>
+            <button className="inline-flex items-center gap-2 rounded border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-steel hover:border-gold hover:text-ink" onClick={publishExecutiveSnapshot}>
+              Refresh Executive Snapshot
+            </button>
+            <button className="inline-flex items-center gap-2 rounded border border-gold bg-gold/20 px-4 py-2 text-sm font-semibold text-ink hover:bg-gold/30" onClick={publishAndOpenExecutiveSnapshot}>
+              Publish & Open Executive View
+            </button>
+            <button className="inline-flex items-center gap-2 rounded border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-steel hover:border-gold hover:text-ink" onClick={exportExecutiveSnapshotFile}>
+              Export Executive Snapshot File
+            </button>
+          </div>
+          <p className="mt-3 text-xs text-steel">Executive snapshot key: <span className="font-semibold text-ink">executiveSnapshot</span>. {executiveSnapshotAt ? `Last published ${new Date(executiveSnapshotAt).toLocaleString()}.` : "No snapshot published in this session yet."}</p>
+          <p className="mt-2 text-xs font-semibold text-amber-900">Place this file into public/executive-snapshot.json, commit, push, and redeploy for shared executive access.</p>
         </ActionCard>
         <ActionCard title="Remove Demo Records Only" description="Remove known demo licensing records without touching manually entered operational records in this browser.">
           <button className="inline-flex items-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100" onClick={() => {

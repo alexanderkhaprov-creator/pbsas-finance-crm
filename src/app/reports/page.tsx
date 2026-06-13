@@ -231,7 +231,12 @@ export default function ReportsPage() {
   };
   const issuedLicenseRegister = {
     "Issued licenses": generatedLicenses.filter((license) => license.approvalStatus === "Issued").length,
-    "Stamped / Certified": generatedLicenses.filter((license) => license.approvalStatus === "Stamped / Certified" || license.stampStatus === "Stamped").length
+    "Stamped / Certified": generatedLicenses.filter((license) => license.approvalStatus === "Stamped / Certified" || license.stampStatus === "Stamped").length,
+    "Active Licenses": generatedLicenses.filter((license) => getLicenseOperationalStatus(license) === "Active").length,
+    "Expiring Licenses": generatedLicenses.filter((license) => getLicenseOperationalStatus(license) === "Expiring Soon").length,
+    "Expired Licenses": generatedLicenses.filter((license) => getLicenseOperationalStatus(license) === "Expired").length,
+    "Photo Pending Licenses": generatedLicenses.filter((license) => photoStatus(licenseApplications.find((application) => application.id === license.applicationId), license) !== "Photo Uploaded to License").length,
+    "Email Pending Licenses": generatedLicenses.filter((license) => (license.licenseEmailStatus ?? licenseApplications.find((application) => application.id === license.applicationId)?.licenseEmailStatus ?? "Not Sent") !== "Sent").length
   };
   const licenseSendReports = {
     "Generated With Pending Items": generatedLicenses.filter((license) => license.approvalStatus === "Generated With Pending Items" || (license.pendingFlags ?? []).length > 0).length,

@@ -11,10 +11,12 @@ import { getLicenseOperationalStatus } from "@/lib/license-utils";
 export default function VerifyLicensePage() {
   const params = useParams<{ licenseNumber: string }>();
   const licenseNumber = decodeURIComponent(params.licenseNumber ?? "");
-  const { generatedLicenses, addAuditLog } = useFinanceData();
+  const { generatedLicenses, licenseApplications, addAuditLog } = useFinanceData();
   const license = useMemo(() => generatedLicenses.find((item) => item.id === licenseNumber), [generatedLicenses, licenseNumber]);
+  const application = useMemo(() => licenseApplications.find((item) => item.id === license?.applicationId), [license?.applicationId, licenseApplications]);
   const status = license ? getLicenseOperationalStatus(license) : "NOT FOUND";
   const headline = license ? status === "Expired" ? "EXPIRED" : status === "Cancelled" ? "CANCELLED" : status === "Rejected" ? "REJECTED" : "VALID LICENSE" : "NOT FOUND";
+  const photo = license?.applicantPhotoFileName || application?.applicantPhotoFileName;
 
   useEffect(() => {
     addAuditLog({
@@ -44,14 +46,29 @@ export default function VerifyLicensePage() {
           <StatusBadge value={license ? status : "Rejected"} />
         </div>
         {license ? (
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            <Info label="Holder name" value={license.applicantName} />
-            <Info label="License category" value={license.categoryLabel} />
-            <Info label="License number" value={license.id} />
-            <Info label="Issue date" value={formatDate(license.issuedDate || license.dateIssued)} />
-            <Info label="Expiry date" value={formatDate(license.expiryDate)} />
-            <Info label="Status" value={status} />
-          </div>
+          <>
+            <div className="mt-6 flex flex-col gap-5 md:flex-row">
+              <div className="flex h-44 w-36 shrink-0 items-center justify-center overflow-hidden rounded border border-black/10 bg-[#f7f7f5]">
+                {photo ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img alt={license.applicantName} className="h-full w-full object-cover" src={photo} />
+                ) : <span className="px-4 text-center text-sm text-steel">Applicant Photo</span>}
+              </div>
+              <div className="grid flex-1 gap-4 md:grid-cols-2">
+                <Info label="Full Name" value={license.applicantName} />
+                <Info label="License Number" value={license.id} />
+                <Info label="Category" value={license.categoryLabel} />
+                <Info label="Nationality" value={license.nationality || application?.nationality || "Not recorded"} />
+                <Info label="Date of Birth" value={formatDate(license.dateOfBirth || application?.dateOfBirth || "")} />
+                <Info label="Issue Date" value={formatDate(license.issuedDate || license.dateIssued)} />
+                <Info label="Expiry Date" value={formatDate(license.expiryDate)} />
+                <Info label="Status" value={status} />
+              </div>
+            </div>
+            <p className={`mt-6 rounded border p-4 text-sm font-semibold ${status === "Expired" ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+              {status === "Expired" ? "This license has expired and is not valid for participation." : "This license is valid for UAEAC-sanctioned professional boxing activities."}
+            </p>
+          </>
         ) : (
           <p className="mt-6 rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             License record not available in this browser. Production verification requires shared database deployment.

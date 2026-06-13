@@ -27,6 +27,7 @@ const navigation = [
   { href: "/stamp-settings", label: "Stamp Settings", icon: Stamp },
   { href: "/license-receipts", label: "License Receipts", icon: ReceiptText },
   { href: "/generated-licenses", label: "Generated Licenses", icon: IdCard },
+  { href: "/issued-licenses", label: "Issued Licenses", icon: IdCard },
   { href: "/document-register", label: "Document Register", icon: FileText },
   { href: "/reimbursements", label: "Reimbursements", icon: HandCoins },
   { href: "/revenue", label: "Revenue", icon: BarChart3 },

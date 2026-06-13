@@ -98,9 +98,11 @@ export default function DashboardPage() {
   const largestCostCenterSpend = Object.entries(byCostCenter).sort((a, b) => b[1] - a[1])[0];
   const licenseRevenue = getLicenseRevenueSummary(licenseApplications);
   const financialReporting = getFinancialReporting({ expenses, revenues, licenseApplications });
+  const issuedGeneratedLicenses = generatedLicenses.filter((license) => license.approvalStatus === "Issued" || license.approvalStatus === "Stamped / Certified" || license.stampStatus === "Stamped");
   const activeLicenses = generatedLicenses.filter((license) => getLicenseOperationalStatus(license) === "Active");
   const expiringLicenses = generatedLicenses.filter((license) => getLicenseOperationalStatus(license) === "Expiring Soon");
   const expiredLicenses = generatedLicenses.filter((license) => getLicenseOperationalStatus(license) === "Expired");
+  const photoPendingLicenses = generatedLicenses.filter((license) => !license.applicantPhotoFileName && license.photoStatus !== "Photo Uploaded to License");
   const licensesAwaitingRenewal = generatedLicenses.filter((license) => getLicenseOperationalStatus(license) === "Expired" || getLicenseOperationalStatus(license) === "Expiring Soon" || license.renewalStatus === "Renewal Pending" || license.renewalStatus === "Renewal Under Review");
   const overdueReimbursements = reimbursements.filter((item) => item.dueDate && item.outstandingBalance > 0 && item.dueDate < "2026-06-02");
   const reimbursementsDue = reimbursements.filter((item) => item.outstandingBalance > 0 && item.status !== "Closed");
@@ -180,9 +182,11 @@ export default function DashboardPage() {
         <MetricCard label="Audit events this week" value={String(auditEventsThisWeek)} detail="Local activity log" />
         <MetricCard label="Last data backup" value={lastBackup ? formatDate(lastBackup.timestamp) : "None"} detail={lastBackup ? lastBackup.timestamp.slice(11, 16) : "No export logged"} />
         <MetricCard label="Total license applications" value={String(licenseApplications.length)} detail="Application registry" />
+        <MetricCard label="Issued Licenses" value={String(issuedGeneratedLicenses.length)} detail="Certified or issued registry" />
         <MetricCard label="Active Licenses" value={String(activeLicenses.length)} detail="Issued or stamped and valid" />
         <MetricCard label="Expiring Within 90 Days" value={String(expiringLicenses.length)} detail="Renewal follow-up" />
         <MetricCard label="Expired Licenses" value={String(expiredLicenses.length)} detail="Past expiry date" />
+        <MetricCard label="Photo Pending" value={String(photoPendingLicenses.length)} detail="License photo upload required" />
         <MetricCard label="Licenses Awaiting Renewal" value={String(licensesAwaitingRenewal.length)} detail="Expired, expiring, or in renewal" />
         <MetricCard label="Applications awaiting payment" value={String(licenseSummary.pendingPayment)} detail="Payment follow-up" />
         <MetricCard label="Payment submitted awaiting verification" value={String(licenseSummary.paymentSubmittedAwaitingVerification)} detail="Finance verification queue" />
