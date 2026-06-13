@@ -10,6 +10,15 @@ import { StatusBadge } from "@/components/status-badge";
 const CURRENT_DAY_TIME = new Date("2026-06-01T00:00:00.000Z").getTime();
 const EXECUTIVE_SNAPSHOT_KEY = "executiveSnapshot";
 
+function readExistingExecutiveSnapshot() {
+  try {
+    const raw = window.localStorage.getItem(EXECUTIVE_SNAPSHOT_KEY);
+    return raw ? JSON.parse(raw) as unknown : null;
+  } catch {
+    return null;
+  }
+}
+
 function ActionCard({
   title,
   description,
@@ -46,7 +55,7 @@ function toCsv(rows: Array<Record<string, unknown>>) {
 }
 
 export default function DataManagementPage() {
-  const { people, events, costCenters, expenses, reimbursements, revenues, receipts, auditLogs, documents, applicationImports, licenseApplications, licenseIntake, licenseReceipts, generatedLicenses, licenseFeeSchedule, licenseDocumentRequirements, stampSettings, appSettings, financialPeriods, exportBackup, validateBackupData, importBackup, resetDemoData, clearLocalData, removeDemoRecordsOnly, removeFaultyTestExpense, cleanupOrphanedReferences, markBackupCompleted, setDataMode, updateFinancialPeriod } = useFinanceData();
+  const { people, events, costCenters, expenses, reimbursements, revenues, receipts, auditLogs, documents, applicationImports, licenseApplications, licenseIntake, licenseReceipts, generatedLicenses, licenseFeeSchedule, licenseDocumentRequirements, stampSettings, paymentSettings, appSettings, financialPeriods, exportBackup, validateBackupData, importBackup, resetDemoData, clearLocalData, removeDemoRecordsOnly, removeFaultyTestExpense, cleanupOrphanedReferences, markBackupCompleted, setDataMode, updateFinancialPeriod } = useFinanceData();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -71,30 +80,55 @@ export default function DataManagementPage() {
     const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
     const totalRevenue = revenues.reduce((sum, revenue) => sum + revenue.amount, 0);
     const outstandingReimbursements = reimbursements.reduce((sum, reimbursement) => sum + (reimbursement.outstandingBalance ?? 0), 0);
+    const previousExecutiveSnapshot = readExistingExecutiveSnapshot();
     return {
       generatedAt,
       generatedBy: "Local User",
+      exportedAt: generatedAt,
       recordCounts: {
+        people: people.length,
+        events: events.length,
         applications: licenseApplications.length,
         generatedLicenses: generatedLicenses.length,
         issuedLicenses: issuedLicenses.length,
         expenses: expenses.length,
+        receipts: receipts.length,
         reimbursements: reimbursements.length,
         revenues: revenues.length,
+        costCenters: costCenters.length,
+        auditLogs: auditLogs.length,
+        documents: documents.length,
         reports: 7
       },
+      people,
+      events,
+      costCenters,
+      auditLogs,
+      documents,
+      applicationImports,
       applications: licenseApplications,
       licenseApplications,
+      licenseIntake,
+      licenseReceipts,
       generatedLicenses,
       issuedLicenses,
+      licenseFeeSchedule,
+      licenseDocumentRequirements,
       expenses,
+      receipts,
       reimbursements,
       revenues,
+      stampSettings,
+      paymentSettings,
+      appSettings,
+      financialPeriods,
+      executiveSnapshot: previousExecutiveSnapshot,
       reports: {
         applications: licenseApplications.length,
         generatedLicenses: generatedLicenses.length,
         issuedLicenses: issuedLicenses.length,
         expenses: expenses.length,
+        receipts: receipts.length,
         reimbursements: reimbursements.length,
         revenues: revenues.length,
         totalExpenses,
@@ -138,7 +172,7 @@ export default function DataManagementPage() {
     const snapshot = buildExecutiveSnapshot();
     downloadFile("executive-snapshot.json", JSON.stringify(snapshot, null, 2), "application/json");
     setExecutiveSnapshotAt(snapshot.generatedAt);
-    setMessage("Executive Snapshot file exported. Place this file into public/executive-snapshot.json, commit, push, and redeploy for shared executive access.");
+    setMessage("Shared Executive Snapshot JSON exported. Replace public/executive-snapshot.json with the downloaded file, commit, push, and redeploy.");
     setError("");
   }
 
@@ -308,11 +342,18 @@ export default function DataManagementPage() {
               Publish & Open Executive View
             </button>
             <button className="inline-flex items-center gap-2 rounded border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-steel hover:border-gold hover:text-ink" onClick={exportExecutiveSnapshotFile}>
-              Export Executive Snapshot File
+              Export Shared Executive Snapshot JSON
             </button>
           </div>
           <p className="mt-3 text-xs text-steel">Executive snapshot key: <span className="font-semibold text-ink">executiveSnapshot</span>. {executiveSnapshotAt ? `Last published ${new Date(executiveSnapshotAt).toLocaleString()}.` : "No snapshot published in this session yet."}</p>
-          <p className="mt-2 text-xs font-semibold text-amber-900">Place this file into public/executive-snapshot.json, commit, push, and redeploy for shared executive access.</p>
+          <div className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
+            <p>To share current data with executive users:</p>
+            <p>1. Click Export Shared Executive Snapshot JSON.</p>
+            <p>2. Replace public/executive-snapshot.json with the downloaded file.</p>
+            <p>3. Commit and push to GitHub.</p>
+            <p>4. Vercel redeploys.</p>
+            <p>5. Share /executive link.</p>
+          </div>
         </ActionCard>
         <ActionCard title="Remove Demo Records Only" description="Remove known demo licensing records without touching manually entered operational records in this browser.">
           <button className="inline-flex items-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100" onClick={() => {
