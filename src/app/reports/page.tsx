@@ -5,9 +5,9 @@ import { useFinanceData } from "@/components/finance-data-provider";
 import { PageHeader } from "@/components/page-header";
 import { sumOutstanding, totalExpensesByField } from "@/lib/finance-calculations";
 import { getFinancialReporting } from "@/lib/financial-reporting";
-import { formatCurrency } from "@/lib/format";
 import { getLicenseRevenueSummary } from "@/lib/license-revenue";
 import { getLicenseOperationalStatus } from "@/lib/license-utils";
+import { formatAed, formatCount, formatReportValue, humanizeReportLabel, netPositionClass } from "@/lib/report-format";
 
 function ExportButtons() {
   return (
@@ -25,12 +25,14 @@ function ExportButtons() {
 function SummaryPanel({ title, totals, currency = true }: { title: string; totals: Record<string, number>; currency?: boolean }) {
   return (
     <section className="rounded border border-black/10 bg-white p-5 shadow-soft">
-      <h3 className="text-base font-semibold text-ink">{title}</h3>
+      <h3 className="text-base font-semibold text-ink">{humanizeReportLabel(title)}</h3>
       <div className="mt-4 space-y-3">
         {Object.entries(totals).map(([label, amount]) => (
           <div className="flex min-w-0 items-center justify-between gap-4 border-b border-black/5 pb-2 text-sm" key={label}>
-            <span className="min-w-0 break-words text-steel">{label}</span>
-            <span className="min-w-0 shrink-0 overflow-hidden whitespace-nowrap text-[clamp(0.8rem,1vw,1rem)] font-semibold text-ink tabular-nums">{currency ? formatCurrency(amount) : amount}</span>
+            <span className="min-w-0 break-words text-steel">{humanizeReportLabel(label)}</span>
+            <span className={`min-w-0 shrink-0 overflow-hidden whitespace-nowrap text-[clamp(0.8rem,1vw,1rem)] font-semibold tabular-nums ${netPositionClass(label, amount)}`}>
+              {formatReportValue(label, amount, currency)}
+            </span>
           </div>
         ))}
       </div>
@@ -287,13 +289,13 @@ export default function ReportsPage() {
       <div className="mb-6 grid gap-4 md:grid-cols-2">
         <section className="rounded border border-black/10 bg-white p-5 shadow-soft">
           <h3 className="text-base font-semibold text-ink">Expense summaries</h3>
-          <p className="mt-3 min-w-0 max-w-full overflow-hidden whitespace-nowrap text-[clamp(1rem,2vw,1.875rem)] font-semibold leading-tight text-ink tabular-nums">{formatCurrency(expenseTotal)}</p>
-          <p className="mt-1 text-sm text-steel">{expenses.length} expense records</p>
+          <p className="mt-3 min-w-0 max-w-full overflow-hidden whitespace-nowrap text-[clamp(1rem,2vw,1.875rem)] font-semibold leading-tight text-ink tabular-nums">{formatAed(expenseTotal)}</p>
+          <p className="mt-1 text-sm text-steel">{formatCount(expenses.length)} expense records</p>
         </section>
         <section className="rounded border border-black/10 bg-white p-5 shadow-soft">
           <h3 className="text-base font-semibold text-ink">Reimbursement summaries</h3>
-          <p className="mt-3 min-w-0 max-w-full overflow-hidden whitespace-nowrap text-[clamp(1rem,2vw,1.875rem)] font-semibold leading-tight text-ink tabular-nums">{formatCurrency(reimbursementTotal)}</p>
-          <p className="mt-1 text-sm text-steel">{reimbursements.length} reimbursement records</p>
+          <p className="mt-3 min-w-0 max-w-full overflow-hidden whitespace-nowrap text-[clamp(1rem,2vw,1.875rem)] font-semibold leading-tight text-ink tabular-nums">{formatAed(reimbursementTotal)}</p>
+          <p className="mt-1 text-sm text-steel">{formatCount(reimbursements.length)} reimbursement records</p>
         </section>
       </div>
       <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
@@ -301,15 +303,15 @@ export default function ReportsPage() {
         <div className="mt-4 grid gap-3 md:grid-cols-4">
           {Object.entries(receiptSummary).map(([label, value]) => (
             <div className="rounded border border-black/10 bg-[#f7f7f5] p-4" key={label}>
-              <p className="text-sm text-steel">{label}</p>
-              <p className="mt-2 text-2xl font-semibold text-ink">{value}</p>
+              <p className="text-sm text-steel">{humanizeReportLabel(label)}</p>
+              <p className="mt-2 text-2xl font-semibold text-ink tabular-nums">{formatCount(value)}</p>
             </div>
           ))}
         </div>
       </section>
       <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
         <h3 className="text-base font-semibold text-ink">License Income by Category</h3>
-        <p className="mt-3 min-w-0 max-w-full overflow-hidden whitespace-nowrap text-[clamp(1rem,2vw,1.875rem)] font-semibold leading-tight text-ink tabular-nums">{formatCurrency(licenseRevenue.totalRevenue)}</p>
+        <p className="mt-3 min-w-0 max-w-full overflow-hidden whitespace-nowrap text-[clamp(1rem,2vw,1.875rem)] font-semibold leading-tight text-ink tabular-nums">{formatAed(licenseRevenue.totalRevenue)}</p>
         <p className="mt-1 text-sm text-steel">Total Revenue from License Applications</p>
         <div className="mt-5 overflow-x-auto">
           <table className="w-full min-w-[780px] text-left text-sm">
@@ -320,10 +322,10 @@ export default function ReportsPage() {
               {licenseRevenue.byCategory.map((row) => (
                 <tr key={row.category}>
                   <td className="px-4 py-4 font-medium text-ink">{row.category}</td>
-                  <td className="px-4 py-4 text-steel">{formatCurrency(row.feeAmount)}</td>
-                  <td className="px-4 py-4 text-steel">{row.paidCount}</td>
-                  <td className="px-4 py-4 font-semibold text-ink">{formatCurrency(row.totalIncome)}</td>
-                  <td className="px-4 py-4 text-steel">{row.category} License Income = {formatCurrency(row.feeAmount)} x {row.paidCount} = {formatCurrency(row.totalIncome)}</td>
+                  <td className="px-4 py-4 text-steel">{formatAed(row.feeAmount)}</td>
+                  <td className="px-4 py-4 text-steel">{formatCount(row.paidCount)}</td>
+                  <td className="px-4 py-4 font-semibold text-ink">{formatAed(row.totalIncome)}</td>
+                  <td className="px-4 py-4 text-steel">{row.category} License Income = {formatAed(row.feeAmount)} x {formatCount(row.paidCount)} = {formatAed(row.totalIncome)}</td>
                 </tr>
               ))}
             </tbody>
@@ -333,9 +335,9 @@ export default function ReportsPage() {
       <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
         <h3 className="text-base font-semibold text-ink">Income Statement</h3>
         <div className="mt-4 grid gap-4 md:grid-cols-3">
-          <ReportMetric label="Total Revenue" value={formatCurrency(financialReporting.receivedRevenue)} />
-          <ReportMetric label="Total Expenses" value={formatCurrency(financialReporting.totalExpenses)} />
-          <ReportMetric label={financialReporting.netPosition >= 0 ? "Net Surplus" : "Net Deficit"} value={formatCurrency(financialReporting.netPosition)} />
+          <ReportMetric label="Total Revenue" value={formatAed(financialReporting.receivedRevenue)} />
+          <ReportMetric label="Total Expenses" value={formatAed(financialReporting.totalExpenses)} />
+          <ReportMetric label="Net Position" value={formatAed(financialReporting.netPosition)} tone={financialReporting.netPosition > 0 ? "positive" : financialReporting.netPosition < 0 ? "negative" : "neutral"} />
         </div>
       </section>
       <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
@@ -349,8 +351,8 @@ export default function ReportsPage() {
               {financialReporting.revenueByCategory.map((row) => (
                 <tr key={row.category}>
                   <td className="px-4 py-4 font-medium text-ink">{row.category}</td>
-                  <td className="px-4 py-4 text-steel">{row.count}</td>
-                  <td className="px-4 py-4 font-semibold text-ink">{formatCurrency(row.amount)}</td>
+                  <td className="px-4 py-4 text-steel">{formatCount(row.count)}</td>
+                  <td className="px-4 py-4 font-semibold text-ink">{formatAed(row.amount)}</td>
                 </tr>
               ))}
             </tbody>
@@ -368,9 +370,9 @@ export default function ReportsPage() {
               {financialReporting.revenueByMonth.map((row) => (
                 <tr key={row.month}>
                   <td className="px-4 py-4 font-medium text-ink">{row.month}</td>
-                  <td className="px-4 py-4 text-steel">{formatCurrency(row.revenue)}</td>
-                  <td className="px-4 py-4 text-steel">{formatCurrency(row.expenses)}</td>
-                  <td className="px-4 py-4 font-semibold text-ink">{formatCurrency(row.netPosition)}</td>
+                  <td className="px-4 py-4 text-steel">{formatAed(row.revenue)}</td>
+                  <td className="px-4 py-4 text-steel">{formatAed(row.expenses)}</td>
+                  <td className={`px-4 py-4 font-semibold ${netPositionClass("Net Position", row.netPosition)}`}>{formatAed(row.netPosition)}</td>
                 </tr>
               ))}
             </tbody>
@@ -380,9 +382,9 @@ export default function ReportsPage() {
       <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
         <h3 className="text-base font-semibold text-ink">Revenue Outstanding & Collection Report</h3>
         <div className="mt-4 grid gap-4 md:grid-cols-4">
-          <ReportMetric label="Expected Revenue" value={formatCurrency(financialReporting.expectedRevenue)} />
-          <ReportMetric label="Received Revenue" value={formatCurrency(financialReporting.receivedRevenue)} />
-          <ReportMetric label="Outstanding Revenue" value={formatCurrency(financialReporting.outstandingRevenue)} />
+          <ReportMetric label="Expected Revenue" value={formatAed(financialReporting.expectedRevenue)} />
+          <ReportMetric label="Received Revenue" value={formatAed(financialReporting.receivedRevenue)} />
+          <ReportMetric label="Outstanding Revenue" value={formatAed(financialReporting.outstandingRevenue)} />
           <ReportMetric label="Collection Rate" value={`${financialReporting.collectionRate.toFixed(1)}%`} />
         </div>
       </section>
@@ -397,9 +399,9 @@ export default function ReportsPage() {
               {financialReporting.eventProfitability.map((row) => (
                 <tr key={row.event}>
                   <td className="px-4 py-4 font-medium text-ink">{row.event}</td>
-                  <td className="px-4 py-4 text-steel">{formatCurrency(row.revenue)}</td>
-                  <td className="px-4 py-4 text-steel">{formatCurrency(row.expenses)}</td>
-                  <td className="px-4 py-4 font-semibold text-ink">{formatCurrency(row.netPosition)}</td>
+                  <td className="px-4 py-4 text-steel">{formatAed(row.revenue)}</td>
+                  <td className="px-4 py-4 text-steel">{formatAed(row.expenses)}</td>
+                  <td className={`px-4 py-4 font-semibold ${netPositionClass("Net Position", row.netPosition)}`}>{formatAed(row.netPosition)}</td>
                 </tr>
               ))}
             </tbody>
@@ -409,9 +411,9 @@ export default function ReportsPage() {
       <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
         <h3 className="text-base font-semibold text-ink">Document Approval Register</h3>
         <div className="mt-4 grid gap-4 md:grid-cols-3">
-          <ReportMetric label="Pending Approval" value={String(documentApprovalRegister.filter((item) => item.approvalStatus === "Pending Approval").length)} />
-          <ReportMetric label="Awaiting Stamp" value={String(documentApprovalRegister.filter((item) => item.approvalStatus === "Approved Awaiting Stamp").length)} />
-          <ReportMetric label="Issued Documents" value={String(documentApprovalRegister.filter((item) => item.approvalStatus === "Issued").length)} />
+          <ReportMetric label="Pending Approval" value={formatCount(documentApprovalRegister.filter((item) => item.approvalStatus === "Pending Approval").length)} />
+          <ReportMetric label="Awaiting Stamp" value={formatCount(documentApprovalRegister.filter((item) => item.approvalStatus === "Approved Awaiting Stamp").length)} />
+          <ReportMetric label="Issued Documents" value={formatCount(documentApprovalRegister.filter((item) => item.approvalStatus === "Issued").length)} />
         </div>
       </section>
       <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
@@ -425,8 +427,8 @@ export default function ReportsPage() {
       <section className="mb-6 rounded border border-black/10 bg-white p-5 shadow-soft">
         <h3 className="text-base font-semibold text-ink">License Stamp Status</h3>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <ReportMetric label="Licenses Awaiting Stamp" value={String(generatedLicenses.filter((license) => (license.approvalStatus ?? "Draft") === "Approved Awaiting Stamp").length)} />
-          <ReportMetric label="Licenses Issued" value={String(generatedLicenses.filter((license) => license.approvalStatus === "Issued").length)} />
+          <ReportMetric label="Licenses Awaiting Stamp" value={formatCount(generatedLicenses.filter((license) => (license.approvalStatus ?? "Draft") === "Approved Awaiting Stamp").length)} />
+          <ReportMetric label="Licenses Issued" value={formatCount(generatedLicenses.filter((license) => license.approvalStatus === "Issued").length)} />
         </div>
       </section>
       <div className="grid gap-4 xl:grid-cols-2">
@@ -495,11 +497,12 @@ export default function ReportsPage() {
   );
 }
 
-function ReportMetric({ label, value }: { label: string; value: string }) {
+function ReportMetric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "positive" | "negative" | "neutral" }) {
+  const valueClass = tone === "positive" ? "text-emerald-700" : tone === "negative" ? "text-red-700" : "text-ink";
   return (
     <div className="min-w-0 overflow-hidden rounded border border-black/10 bg-[#f7f7f5] p-4">
-      <p className="min-w-0 break-words text-sm text-steel">{label}</p>
-      <p className="mt-2 min-w-0 max-w-full overflow-hidden whitespace-nowrap text-[clamp(0.8rem,1vw,1.5rem)] font-semibold leading-tight text-ink tabular-nums">{value}</p>
+      <p className="min-w-0 break-words text-sm text-steel">{humanizeReportLabel(label)}</p>
+      <p className={`mt-2 min-w-0 max-w-full overflow-hidden whitespace-nowrap text-[clamp(0.8rem,1vw,1.5rem)] font-semibold leading-tight tabular-nums ${valueClass}`}>{value}</p>
     </div>
   );
 }
